@@ -1785,11 +1785,26 @@ func (a *App) handleSetDocumentFolders(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := ""; if claims != nil { actor = claims.Username }
 
-	a.db.Exec(r.Context(), `DELETE FROM document_folders WHERE document_id=$1`, docID)
+	// Filter out system folders from the requested list
+	var realFolders []string
 	for _, fid := range body.FolderIDs {
+		if fid != FolderRootID && fid != FolderUnfiledID {
+			realFolders = append(realFolders, fid)
+		}
+	}
+
+	a.db.Exec(r.Context(), `DELETE FROM document_folders WHERE document_id=$1`, docID)
+	if len(realFolders) == 0 {
+		// No real folders selected — fall back to Unfiled Folder
 		a.db.Exec(r.Context(),
 			`INSERT INTO document_folders (document_id, folder_id, filed_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-			docID, fid, actor)
+			docID, FolderUnfiledID, actor)
+	} else {
+		for _, fid := range realFolders {
+			a.db.Exec(r.Context(),
+				`INSERT INTO document_folders (document_id, folder_id, filed_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+				docID, fid, actor)
+		}
 	}
 	// Respond with updated list
 	rows, _ := a.db.Query(r.Context(),
