@@ -1,0 +1,106 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ecms
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ecms"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── MinIO (S3-compatible, fully persistent, free) ───────────────────────────
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data        # all objects persist here
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── MinIO bucket init ────────────────────────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/ecms-documents &&
+      echo 'Bucket ecms-documents ready'
+      "
+
+  # ── Gotenberg (LibreOffice Office→PDF converter) ─────────────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  # ── ECMS Backend (Go) ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    expose:
+      - "3001"
+    environment:
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DATABASE: ecms
+      PG_USER: postgres
+      PG_PASSWORD: localpassword
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET_NAME: ecms-documents
+      AWS_ENDPOINT_URL: http://minio:9000
+      JWT_SECRET: change-me-in-production-use-a-long-random-string
+      GOTENBERG_URL: http://gotenberg:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      gotenberg:
+        condition: service_started
+    restart: on-failure
+
+  # ── ECMS Frontend (Nginx + TLS) ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8080:80"
+      - "8443:443"
+    environment:
+      ECMS_API_URL: /api
+    depends_on:
+      - backend
+
+volumes:
+  pg-data:
+  minio-data:    # MinIO objects persist across any restart or rebuild

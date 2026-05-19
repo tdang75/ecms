@@ -1,0 +1,18 @@
+# TLS certificates (generated locally, never commit private keys)
+certs/*.key
+
+# Environment / secrets
+backend/.env
+.env
+
+# Go build artifacts
+backend/ecms-server
+backend/ecms
+backend/*.exe
+
+# IDE / tool config
+.claude/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
