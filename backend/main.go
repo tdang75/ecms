@@ -87,14 +87,20 @@ const (
 	PermTaxRead     = "taxonomy:read"
 	PermTaxUpdate   = "taxonomy:update"
 	PermTaxDelete   = "taxonomy:delete"
-	PermUserManage  = "users:manage"
+	PermUserManage    = "users:manage"
+	PermFolderManage  = "folders:manage"
 )
 
 var AllPermissions = []string{
 	PermDocCreate, PermDocRead, PermDocUpdate, PermDocDelete, PermDocDownload,
 	PermTaxCreate, PermTaxRead, PermTaxUpdate, PermTaxDelete,
-	PermUserManage,
+	PermUserManage, PermFolderManage,
 }
+
+const (
+	FolderRootID    = "f0000000-0000-0000-0000-000000000001"
+	FolderUnfiledID = "f0000000-0000-0000-0000-000000000002"
+)
 
 var UserPermissions = []string{
 	PermDocCreate, PermDocRead, PermDocDownload,
@@ -234,6 +240,15 @@ type Annotation struct {
 	Content    string    `json:"content,omitempty"`
 	Author     string    `json:"author"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+type Folder struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	ParentID  *string   `json:"parent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by"`
+	Children  []*Folder `json:"children,omitempty"`
 }
 
 // ── App ────────────────────────────────────────────────────────────────────────
@@ -592,6 +607,24 @@ func (a *App) initDB() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_annotations_document ON document_annotations(document_id);
 
+	-- Folder tables
+	CREATE TABLE IF NOT EXISTS folders (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL,
+		parent_id  TEXT REFERENCES folders(id) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ DEFAULT NOW(),
+		created_by TEXT NOT NULL DEFAULT 'system'
+	);
+	CREATE TABLE IF NOT EXISTS document_folders (
+		document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+		folder_id   TEXT NOT NULL REFERENCES folders(id)   ON DELETE CASCADE,
+		filed_at    TIMESTAMPTZ DEFAULT NOW(),
+		filed_by    TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (document_id, folder_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_doc_folders_doc    ON document_folders(document_id);
+	CREATE INDEX IF NOT EXISTS idx_doc_folders_folder ON document_folders(folder_id);
+
 	-- Triggers
 	CREATE OR REPLACE FUNCTION update_updated_at() RETURNS TRIGGER AS $$
 	BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
@@ -712,6 +745,17 @@ func (a *App) seedDefaults() error {
 		ON CONFLICT (class_id,property_template_id) DO NOTHING`)
 	if err != nil {
 		return fmt.Errorf("seed class props: %w", err)
+	}
+
+	// Seed root folders
+	_, err = a.db.Exec(ctx, `
+		INSERT INTO folders (id, name, parent_id, created_by) VALUES
+		  ($1, 'File Store',     NULL, 'system'),
+		  ($2, 'Unfiled Folder', $1,   'system')
+		ON CONFLICT (id) DO NOTHING`,
+		FolderRootID, FolderUnfiledID)
+	if err != nil {
+		return fmt.Errorf("seed folders: %w", err)
 	}
 
 	log.Printf("✅ Default data seeded — admin password hash set (len=%d)", len(hash))
@@ -1302,6 +1346,7 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	if cls := q.Get("class_id"); cls != "" { query += fmt.Sprintf(" AND d.class_id=$%d", i); args = append(args, cls); i++ }
 	if s := q.Get("search"); s != "" { query += fmt.Sprintf(" AND (d.name ILIKE $%d OR d.description ILIKE $%d)", i, i); args = append(args, "%"+s+"%"); i++ }
 	if t := q.Get("tags"); t != "" { query += fmt.Sprintf(" AND d.tags && $%d", i); args = append(args, strings.Split(t, ",")); i++ }
+	if fid := q.Get("folder_id"); fid != "" { query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM document_folders df WHERE df.document_id=d.id AND df.folder_id=$%d)", i); args = append(args, fid); i++ }
 	_ = i
 	query += " ORDER BY d.created_at DESC"
 	rows, err := a.db.Query(context.Background(), query, args...)
@@ -1383,6 +1428,9 @@ func (a *App) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 	if len(propInputs) > 0 { a.savePropertyValues(context.Background(), id, propInputs) }
 	a.db.Exec(context.Background(), `INSERT INTO document_versions (id,document_id,version,s3_key,file_size) VALUES ($1,$2,1,$3,$4)`, uuid.New().String(), id, s3Key, header.Size)
 	a.defaultACL(context.Background(), id, actor)
+	a.db.Exec(context.Background(),
+		`INSERT INTO document_folders (document_id, folder_id, filed_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+		id, FolderUnfiledID, actor)
 	a.audit(id, "upload", actor, map[string]any{"s3_key": s3Key, "size": header.Size})
 	writeJSON(w, 201, d)
 }
@@ -1632,6 +1680,133 @@ func (a *App) handleDeleteAnnotation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
 
+// ── Folder handlers ────────────────────────────────────────────────────────────
+
+func (a *App) handleGetFolderTree(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(),
+		`SELECT id, name, parent_id, created_at, created_by FROM folders ORDER BY name`)
+	if err != nil { writeError(w, 500, err.Error()); return }
+	defer rows.Close()
+
+	all := map[string]*Folder{}
+	var order []string
+	for rows.Next() {
+		f := &Folder{}
+		rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.CreatedAt, &f.CreatedBy)
+		all[f.ID] = f
+		order = append(order, f.ID)
+	}
+	// Build tree
+	var roots []*Folder
+	for _, id := range order {
+		f := all[id]
+		if f.ParentID == nil {
+			roots = append(roots, f)
+		} else if parent, ok := all[*f.ParentID]; ok {
+			parent.Children = append(parent.Children, f)
+		}
+	}
+	writeJSON(w, 200, roots)
+}
+
+func (a *App) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name     string  `json:"name"`
+		ParentID *string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		writeError(w, 400, "name required"); return
+	}
+	claims := claimsFrom(r)
+	actor := "system"; if claims != nil { actor = claims.Username }
+	id := uuid.New().String()
+	_, err := a.db.Exec(r.Context(),
+		`INSERT INTO folders (id, name, parent_id, created_by) VALUES ($1,$2,$3,$4)`,
+		id, body.Name, body.ParentID, actor)
+	if err != nil { writeError(w, 500, err.Error()); return }
+	f := &Folder{ID: id, Name: body.Name, ParentID: body.ParentID, CreatedBy: actor}
+	writeJSON(w, 201, f)
+}
+
+func (a *App) handleUpdateFolder(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == FolderRootID || id == FolderUnfiledID {
+		writeError(w, 400, "cannot rename system folders"); return
+	}
+	var body struct{ Name string `json:"name"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		writeError(w, 400, "name required"); return
+	}
+	_, err := a.db.Exec(r.Context(), `UPDATE folders SET name=$1 WHERE id=$2`, body.Name, id)
+	if err != nil { writeError(w, 500, err.Error()); return }
+	writeJSON(w, 200, map[string]string{"id": id, "name": body.Name})
+}
+
+func (a *App) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == FolderRootID || id == FolderUnfiledID {
+		writeError(w, 400, "cannot delete system folders"); return
+	}
+	a.db.Exec(r.Context(), `DELETE FROM folders WHERE id=$1`, id)
+	writeJSON(w, 200, map[string]string{"status": "deleted"})
+}
+
+func (a *App) handleGetDocumentFolders(w http.ResponseWriter, r *http.Request) {
+	docID := r.PathValue("id")
+	claims := claimsFrom(r)
+	if !a.docAllowed(r.Context(), docID, ACLRead, claims) {
+		writeError(w, 403, "access denied"); return
+	}
+	rows, err := a.db.Query(r.Context(),
+		`SELECT f.id, f.name, f.parent_id, f.created_at, f.created_by
+		 FROM folders f JOIN document_folders df ON df.folder_id=f.id
+		 WHERE df.document_id=$1 ORDER BY f.name`, docID)
+	if err != nil { writeError(w, 500, err.Error()); return }
+	defer rows.Close()
+	var folders []*Folder
+	for rows.Next() {
+		f := &Folder{}
+		rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.CreatedAt, &f.CreatedBy)
+		folders = append(folders, f)
+	}
+	if folders == nil { folders = []*Folder{} }
+	writeJSON(w, 200, folders)
+}
+
+func (a *App) handleSetDocumentFolders(w http.ResponseWriter, r *http.Request) {
+	docID := r.PathValue("id")
+	claims := claimsFrom(r)
+	if !a.docAllowed(r.Context(), docID, ACLUpdate, claims) {
+		writeError(w, 403, "access denied"); return
+	}
+	var body struct{ FolderIDs []string `json:"folder_ids"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, 400, "invalid body"); return
+	}
+	actor := ""; if claims != nil { actor = claims.Username }
+
+	a.db.Exec(r.Context(), `DELETE FROM document_folders WHERE document_id=$1`, docID)
+	for _, fid := range body.FolderIDs {
+		a.db.Exec(r.Context(),
+			`INSERT INTO document_folders (document_id, folder_id, filed_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+			docID, fid, actor)
+	}
+	// Respond with updated list
+	rows, _ := a.db.Query(r.Context(),
+		`SELECT f.id, f.name, f.parent_id, f.created_at, f.created_by
+		 FROM folders f JOIN document_folders df ON df.folder_id=f.id
+		 WHERE df.document_id=$1 ORDER BY f.name`, docID)
+	defer rows.Close()
+	var folders []*Folder
+	for rows.Next() {
+		f := &Folder{}
+		rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.CreatedAt, &f.CreatedBy)
+		folders = append(folders, f)
+	}
+	if folders == nil { folders = []*Folder{} }
+	writeJSON(w, 200, folders)
+}
+
 var mimeToExt = map[string]string{
 	"application/msword":                                                               ".doc",
 	"application/vnd.ms-excel":                                                        ".xls",
@@ -1819,6 +1994,14 @@ func (a *App) buildMux() http.Handler {
 	mux.HandleFunc("GET /documents/{id}/annotations",            a.requireAuth(PermDocRead, a.handleListAnnotations))
 	mux.HandleFunc("POST /documents/{id}/annotations",           a.requireAuth(PermDocRead, a.handleCreateAnnotation))
 	mux.HandleFunc("DELETE /documents/{id}/annotations/{annId}", a.requireAuth(PermDocRead, a.handleDeleteAnnotation))
+
+	// Folders
+	mux.HandleFunc("GET /folders",                         a.requireAuth("",                a.handleGetFolderTree))
+	mux.HandleFunc("POST /folders",                        a.requireAuth(PermFolderManage,  a.handleCreateFolder))
+	mux.HandleFunc("PUT /folders/{id}",                    a.requireAuth(PermFolderManage,  a.handleUpdateFolder))
+	mux.HandleFunc("DELETE /folders/{id}",                 a.requireAuth(PermFolderManage,  a.handleDeleteFolder))
+	mux.HandleFunc("GET /documents/{id}/folders",          a.requireAuth(PermDocRead,       a.handleGetDocumentFolders))
+	mux.HandleFunc("PUT /documents/{id}/folders",          a.requireAuthOrOwner(PermDocUpdate, a.handleSetDocumentFolders))
 
 	return corsMiddleware(mux)
 }

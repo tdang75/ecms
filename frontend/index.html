@@ -49,6 +49,14 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 .nav-item svg{width:14px;height:14px;flex-shrink:0;opacity:.7}
 .nav-item.active svg{opacity:1}
 .nav-badge{margin-left:auto;font-size:10px;background:var(--bg-hover);color:var(--text-secondary);padding:1px 5px;border-radius:20px;border:1px solid var(--border)}
+.folder-section{padding:4px 8px 8px}
+.folder-section-head{display:flex;align-items:center;justify-content:space-between;font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text-muted);padding:9px 0 4px}
+.folder-item{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:var(--radius);cursor:pointer;color:var(--text-secondary);font-size:12px;transition:all .15s;user-select:none;white-space:nowrap;overflow:hidden}
+.folder-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.folder-item.active{background:var(--accent-glow);color:var(--accent-light);font-weight:500}
+.folder-children{padding-left:14px}
+.folder-toggle{font-size:9px;color:var(--text-muted);flex-shrink:0;width:12px;text-align:center}
+.folder-icon{font-size:12px;flex-shrink:0}
 .sidebar-footer{padding:10px;border-top:1px solid var(--border)}
 .user-pill{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius);background:var(--bg-hover);border:1px solid var(--border);cursor:pointer;transition:all .15s}
 .user-pill:hover{border-color:var(--border-hover)}
@@ -245,8 +253,8 @@ tbody tr:hover .row-actions{opacity:1}
 .annot-badge-rectangle{background:rgba(33,150,243,.2);color:#60b4f6}
 .annot-badge-text{background:rgba(76,175,80,.2);color:#6acc6e}
 .annot-badge-redaction{background:rgba(0,0,0,.5);color:#999;border:1px solid #444}
-#doc-ctx-menu,#user-ctx-menu{display:none;position:fixed;z-index:400;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:4px 0;min-width:190px;font-size:13px;user-select:none}
-#doc-ctx-menu.open,#user-ctx-menu.open{display:block}
+#doc-ctx-menu,#user-ctx-menu,#folder-ctx-menu{display:none;position:fixed;z-index:400;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:4px 0;min-width:190px;font-size:13px;user-select:none}
+#doc-ctx-menu.open,#user-ctx-menu.open,#folder-ctx-menu.open{display:block}
 .ctx-item{padding:7px 14px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;gap:9px;transition:background .1s;white-space:nowrap}
 .ctx-item:hover{background:var(--bg-hover);color:var(--text-primary)}
 .ctx-item-danger{color:var(--danger)!important}
@@ -292,12 +300,15 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
       <div class="logo-icon">E</div>
       <div><div class="logo-text">ECMS</div><div class="logo-sub">Enterprise CMS</div></div>
     </div>
+    <div class="folder-section" id="folder-section">
+      <div class="folder-section-head">
+        File Store
+        <button id="btn-new-folder" class="btn btn-sm" onclick="openNewFolderModal(null)" style="display:none;padding:1px 7px;font-size:11px" title="New folder">+</button>
+      </div>
+      <div id="folder-tree"></div>
+    </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Workspace</div>
-      <div class="nav-item active" onclick="showView('documents')" id="nav-documents">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-        Documents <span class="nav-badge" id="doc-count-badge">–</span>
-      </div>
       <div class="nav-item" onclick="showView('taxonomy')" id="nav-taxonomy" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Taxonomy
@@ -594,6 +605,42 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
   </div>
 </div>
 
+<!-- ── Folder context menu (admin) ── -->
+<div id="folder-ctx-menu">
+  <div class="ctx-item" onclick="addSubFolder()">📁 New Folder</div>
+  <div class="ctx-item" id="folder-ctx-rename" onclick="renameFolder()">✏️ Rename</div>
+  <div class="ctx-sep" id="folder-ctx-sep"></div>
+  <div class="ctx-item ctx-item-danger" id="folder-ctx-delete" onclick="deleteFolder()">✕ Delete</div>
+</div>
+
+<!-- ── New Folder Modal ── -->
+<div class="modal-overlay" id="new-folder-modal">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-head"><h2>New Folder</h2><button class="btn btn-sm" onclick="closeModal('new-folder-modal')" style="margin-left:auto">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="new-folder-parent-id">
+      <div class="form-group">
+        <label class="form-label">Folder Name</label>
+        <input type="text" class="form-input" id="new-folder-name" placeholder="e.g. Finance 2025" onkeydown="if(event.key==='Enter')createFolder()">
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('new-folder-modal')">Cancel</button><button class="btn btn-primary" onclick="createFolder()">Create</button></div>
+  </div>
+</div>
+
+<!-- ── File Into Folders Modal ── -->
+<div class="modal-overlay" id="file-folders-modal">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-head"><h2>File Into Folders</h2><button class="btn btn-sm" onclick="closeModal('file-folders-modal')" style="margin-left:auto">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="file-folders-doc-id">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Select folders this document belongs to:</div>
+      <div id="file-folders-list" style="max-height:300px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('file-folders-modal')">Cancel</button><button class="btn btn-primary" onclick="saveDocFolders()">Save</button></div>
+  </div>
+</div>
+
 <!-- ── User context menu ── -->
 <div id="user-ctx-menu">
   <div class="ctx-item" onclick="hideUserMenu();showView('profile')">👤 User Profile</div>
@@ -605,6 +652,8 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
 <div id="doc-ctx-menu">
   <div class="ctx-item" id="ctx-properties" onclick="ctxProperties()">📋 Properties</div>
   <div class="ctx-item" id="ctx-view"       onclick="ctxView()">👁 View Document</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctx-file-folder" onclick="ctxFileFolder()">📁 File in Folder</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ctx-download"   onclick="ctxDownload()">↓ Download</div>
   <div class="ctx-sep"  id="ctx-sep-delete"></div>
@@ -700,10 +749,12 @@ function bootApp() {
   if (hasPerm('taxonomy:create')) document.getElementById('nav-taxonomy').style.display = 'flex';
   if (hasPerm('taxonomy:create')) { document.getElementById('btn-new-class').style.display = 'flex'; document.getElementById('btn-new-template').style.display = 'flex'; }
   if (hasPerm('documents:create')) document.getElementById('upload-btn-top').style.display = '';
+  if (hasPerm('folders:manage')) document.getElementById('btn-new-folder').style.display = 'inline-flex';
 
   loadAll();
   loadClasses();
   loadTemplates();
+  loadFolders();
 }
 
 // ── Try restore session ────────────────────────────────────────────────────────
@@ -734,6 +785,162 @@ async function loadTemplates() {
   } catch {}
 }
 
+// ── Folders ────────────────────────────────────────────────────────────────────
+let folders = []; // flat list from API
+let activeFolderID = null;
+
+async function loadFolders() {
+  try {
+    const r = await apiFetch('/folders');
+    if (!r.ok) return;
+    const roots = await r.json();
+    folders = flattenFolderTree(roots);
+    renderFolderTree(roots);
+  } catch {}
+}
+
+function flattenFolderTree(nodes, out=[]) {
+  for (const n of (nodes||[])) { out.push(n); flattenFolderTree(n.children, out); }
+  return out;
+}
+
+function renderFolderTree(nodes, container) {
+  if (!container) container = document.getElementById('folder-tree');
+  container.innerHTML = '';
+  for (const f of (nodes||[])) {
+    const item = document.createElement('div');
+    const hasChildren = f.children && f.children.length > 0;
+    item.className = 'folder-item' + (activeFolderID===f.id?' active':'');
+    item.id = 'folder-nav-'+f.id;
+    item.innerHTML = `<span class="folder-toggle">${hasChildren?'▸':''}</span><span class="folder-icon">📁</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escHtml(f.name)}</span>`;
+    item.onclick = (e) => { e.stopPropagation(); selectFolder(f.id); };
+    if (hasPerm('folders:manage')) {
+      item.oncontextmenu = (e) => { e.preventDefault(); showFolderCtxMenu(e, f); };
+    }
+    container.appendChild(item);
+    if (hasChildren) {
+      const childContainer = document.createElement('div');
+      childContainer.className = 'folder-children';
+      renderFolderTree(f.children, childContainer);
+      container.appendChild(childContainer);
+    }
+  }
+}
+
+function selectFolder(id) {
+  activeFolderID = activeFolderID === id ? null : id;
+  document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
+  if (activeFolderID) {
+    const el = document.getElementById('folder-nav-'+activeFolderID);
+    if (el) el.classList.add('active');
+  }
+  showView('documents');
+  loadAll();
+}
+
+// Folder context menu (admin only)
+let _ctxFolder = null;
+const SYSTEM_FOLDER_IDS = new Set(['f0000000-0000-0000-0000-000000000001','f0000000-0000-0000-0000-000000000002']);
+function showFolderCtxMenu(e, f) {
+  _ctxFolder = f;
+  const isSystem = SYSTEM_FOLDER_IDS.has(f.id);
+  document.getElementById('folder-ctx-rename').style.display = isSystem ? 'none' : '';
+  document.getElementById('folder-ctx-sep').style.display    = isSystem ? 'none' : '';
+  document.getElementById('folder-ctx-delete').style.display = isSystem ? 'none' : '';
+  const menu = document.getElementById('folder-ctx-menu');
+  menu.classList.add('open');
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let x = e.clientX, y = e.clientY;
+  if (x + menu.offsetWidth > vw-8) x = vw - menu.offsetWidth - 8;
+  if (y + menu.offsetHeight > vh-8) y = vh - menu.offsetHeight - 8;
+  menu.style.left = x+'px'; menu.style.top = y+'px';
+}
+function hideFolderCtxMenu() { document.getElementById('folder-ctx-menu').classList.remove('open'); _ctxFolder = null; }
+document.addEventListener('click', hideFolderCtxMenu);
+
+function openNewFolderModal(parentID) {
+  document.getElementById('new-folder-parent-id').value = parentID||'';
+  document.getElementById('new-folder-name').value = '';
+  document.getElementById('new-folder-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('new-folder-name').focus(),50);
+}
+async function createFolder() {
+  const name = document.getElementById('new-folder-name').value.trim();
+  if (!name) { toast('Folder name required','error'); return; }
+  const parentID = document.getElementById('new-folder-parent-id').value || null;
+  const r = await apiFetch('/folders', {method:'POST', body: JSON.stringify({name, parent_id: parentID})});
+  if (!r.ok) { toast('Failed to create folder','error'); return; }
+  toast('Folder created','success');
+  closeModal('new-folder-modal');
+  await loadFolders();
+}
+async function renameFolder() {
+  const f = _ctxFolder; if (!f) return;
+  hideFolderCtxMenu();
+  const name = prompt('Rename folder:', f.name);
+  if (!name || name === f.name) return;
+  const r = await apiFetch('/folders/'+f.id, {method:'PUT', body:JSON.stringify({name})});
+  if (!r.ok) { toast('Failed to rename','error'); return; }
+  toast('Folder renamed','success');
+  await loadFolders();
+}
+async function deleteFolder() {
+  const f = _ctxFolder; if (!f) return;
+  hideFolderCtxMenu();
+  if (!confirm(`Delete folder "${f.name}"? Documents inside will not be deleted.`)) return;
+  const r = await apiFetch('/folders/'+f.id, {method:'DELETE'});
+  if (!r.ok) { toast('Failed to delete','error'); return; }
+  if (activeFolderID === f.id) { activeFolderID = null; loadAll(); }
+  toast('Folder deleted','success');
+  await loadFolders();
+}
+async function addSubFolder() {
+  const f = _ctxFolder; if (!f) return;
+  hideFolderCtxMenu();
+  openNewFolderModal(f.id);
+}
+
+// Folder membership in document detail
+async function loadDocFolders(docID) {
+  const sec = document.getElementById('doc-folders-section');
+  if (!sec) return;
+  try {
+    const r = await apiFetch('/documents/'+docID+'/folders');
+    const docFolders = r.ok ? await r.json() : [];
+    const canEdit = hasPerm('documents:update') || (currentDoc && currentDoc.created_by === currentUser?.username);
+    const items = docFolders.map(f=>`<span class="tag" style="cursor:default">📁 ${escHtml(f.name)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
+    sec.innerHTML = `<div class="section-title">Filed In${canEdit?` <button class="btn btn-sm" style="font-size:11px;padding:1px 7px;margin-left:8px" onclick="openFileFoldersModal('${escHtml(docID)}')">Edit</button>`:''}
+    </div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${items}</div>`;
+  } catch {}
+}
+
+async function openFileFoldersModal(docID) {
+  document.getElementById('file-folders-doc-id').value = docID;
+  // Load current folders for this doc
+  const r = await apiFetch('/documents/'+docID+'/folders');
+  const current = r.ok ? await r.json() : [];
+  const currentIDs = new Set(current.map(f=>f.id));
+  // Render all folders as checkboxes (excluding root)
+  const container = document.getElementById('file-folders-list');
+  const allFolders = folders.filter(f => !SYSTEM_FOLDER_IDS.has(f.id));
+  container.innerHTML = allFolders.map(f=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px">
+      <input type="checkbox" value="${f.id}" ${currentIDs.has(f.id)?'checked':''}>
+      📁 ${escHtml(f.name)}
+    </label>`).join('');
+  document.getElementById('file-folders-modal').classList.add('open');
+}
+async function saveDocFolders() {
+  const docID = document.getElementById('file-folders-doc-id').value;
+  const checked = [...document.querySelectorAll('#file-folders-list input:checked')].map(i=>i.value);
+  const r = await apiFetch('/documents/'+docID+'/folders', {method:'PUT', body:JSON.stringify({folder_ids: checked})});
+  if (!r.ok) { toast('Failed to save','error'); return; }
+  toast('Folders updated','success');
+  closeModal('file-folders-modal');
+  await loadDocFolders(docID);
+  await loadFolders();
+}
+
 function populateClassFilters() {
   const sel = document.getElementById('filter-class');
   sel.innerHTML = '<option value="">All classes</option>'+classes.map(c=>`<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
@@ -750,6 +957,7 @@ async function loadAll() {
     const status = document.getElementById('filter-status').value||'active';
     if (cls) params.class_id = cls;
     if (status) params.status = status;
+    if (activeFolderID) params.folder_id = activeFolderID;
     const [dr, sr] = await Promise.all([
       apiFetch('/documents?'+new URLSearchParams(params)).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}),
       apiFetch('/stats').then(r=>r.json()),
@@ -758,7 +966,6 @@ async function loadAll() {
     statsData = sr;
     updateStats(sr);
     renderDocs();
-    document.getElementById('doc-count-badge').textContent = docs.length;
   } catch(e) {
     container.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><h3>Cannot reach backend</h3><p>${escHtml(e.message)}</p></div>`;
   }
@@ -833,7 +1040,7 @@ function showDocCtxMenu(e, id) {
 }
 function hideDocCtxMenu() { document.getElementById('doc-ctx-menu').classList.remove('open'); _ctxDocID = null; }
 document.addEventListener('click', hideDocCtxMenu);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { hideDocCtxMenu(); hideUserMenu(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hideDocCtxMenu(); hideUserMenu(); hideFolderCtxMenu(); } });
 
 function showUserMenu(e) {
   e.preventDefault(); e.stopPropagation();
@@ -856,8 +1063,9 @@ function ctxView() {
   const d = docs.find(x => x.id === id);
   if (d) viewDocument(d.id, d.name, d.mime_type||'');
 }
-function ctxDownload() { const id = _ctxDocID; hideDocCtxMenu(); if (id) downloadDocById(id); }
-function ctxDelete()   { const id = _ctxDocID; hideDocCtxMenu(); if (id) deleteDocById(id); }
+function ctxDownload()    { const id = _ctxDocID; hideDocCtxMenu(); if (id) downloadDocById(id); }
+function ctxDelete()      { const id = _ctxDocID; hideDocCtxMenu(); if (id) deleteDocById(id); }
+function ctxFileFolder()  { const id = _ctxDocID; hideDocCtxMenu(); if (id) openFileFoldersModal(id); }
 
 // ── Upload ─────────────────────────────────────────────────────────────────────
 function openUploadModal() {
@@ -958,10 +1166,14 @@ async function openDetail(id) {
       <div class="detail-field"><label>Uploaded</label><span>${fmtDate(d.created_at)} by ${escHtml(d.created_by)}</span></div>
     </div>
     ${d.tags&&d.tags.length?`<div style="margin-bottom:14px">${d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join('')}</div>`:''}
+    <div style="margin-bottom:16px" id="doc-folders-section"></div>
     ${propsHtml}
     ${renderACLSection(d)}
     <div style="margin-bottom:16px"><div class="section-title">Version History</div><div class="version-list">${versHtml}</div></div>
     <div><div class="section-title">Audit Log</div><div class="audit-list">${auditHtml}</div></div>`;
+
+  // Load and render folder membership
+  loadDocFolders(d.id);
 
   // Build footer buttons based on permissions
   const foot=document.getElementById('detail-foot');
@@ -2722,9 +2934,9 @@ document.addEventListener('keydown', e => {
 function showView(v){
   const views=['documents','taxonomy','analytics','users','profile'];
   views.forEach(n=>{const el=document.getElementById('view-'+n);if(el)el.style.display=n===v?'':'none';});
-  const navs=['documents','taxonomy','analytics','users'];
+  const navs=['taxonomy','analytics','users'];
   navs.forEach(n=>{const el=document.getElementById('nav-'+n);if(el)el.classList.toggle('active',n===v);});
-  const titles={documents:'Documents',taxonomy:'Taxonomy',analytics:'Analytics',users:'Users & Groups',profile:'My Profile'};
+  const titles={documents:'File Store',taxonomy:'Taxonomy',analytics:'Analytics',users:'Users & Groups',profile:'My Profile'};
   document.getElementById('page-title').textContent=titles[v]||v;
   if(v==='taxonomy'){renderClassesView();renderTemplatesView();}
   if(v==='analytics'&&statsData)updateStats(statsData);
