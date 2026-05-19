@@ -1776,7 +1776,7 @@ func (a *App) handleGetDocumentFolders(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleSetDocumentFolders(w http.ResponseWriter, r *http.Request) {
 	docID := r.PathValue("id")
 	claims := claimsFrom(r)
-	if !a.docAllowed(r.Context(), docID, ACLUpdate, claims) {
+	if !a.docAllowed(r.Context(), docID, ACLRead, claims) {
 		writeError(w, 403, "access denied"); return
 	}
 	var body struct{ FolderIDs []string `json:"folder_ids"` }
@@ -2016,7 +2016,7 @@ func (a *App) buildMux() http.Handler {
 	mux.HandleFunc("PUT /folders/{id}",                    a.requireAuth(PermFolderManage,  a.handleUpdateFolder))
 	mux.HandleFunc("DELETE /folders/{id}",                 a.requireAuth(PermFolderManage,  a.handleDeleteFolder))
 	mux.HandleFunc("GET /documents/{id}/folders",          a.requireAuth(PermDocRead,       a.handleGetDocumentFolders))
-	mux.HandleFunc("PUT /documents/{id}/folders",          a.requireAuthOrOwner(PermDocUpdate, a.handleSetDocumentFolders))
+	mux.HandleFunc("PUT /documents/{id}/folders",          a.requireAuth(PermDocRead, a.handleSetDocumentFolders))
 
 	return corsMiddleware(mux)
 }

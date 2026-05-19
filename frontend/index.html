@@ -815,7 +815,7 @@ function renderFolderTree(nodes, container) {
     item.id = 'folder-nav-'+f.id;
     item.innerHTML = `<span class="folder-toggle">${hasChildren?'▸':''}</span><span class="folder-icon">📁</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escHtml(f.name)}</span>`;
     item.onclick = (e) => { e.stopPropagation(); selectFolder(f.id); };
-    if (hasPerm('folders:manage')) {
+    if (hasPerm('documents:create') || hasPerm('folders:manage')) {
       item.oncontextmenu = (e) => { e.preventDefault(); showFolderCtxMenu(e, f); };
     }
     container.appendChild(item);
@@ -844,13 +844,15 @@ let _ctxFolder = null;
 const SYSTEM_FOLDER_IDS = new Set(['f0000000-0000-0000-0000-000000000001','f0000000-0000-0000-0000-000000000002']);
 function showFolderCtxMenu(e, f) {
   _ctxFolder = f;
-  const isSystem = SYSTEM_FOLDER_IDS.has(f.id);
+  const isSystem  = SYSTEM_FOLDER_IDS.has(f.id);
   const isUnfiled = f.id === 'f0000000-0000-0000-0000-000000000002';
   const isRoot    = f.id === 'f0000000-0000-0000-0000-000000000001';
-  document.getElementById('folder-ctx-upload').style.display    = isRoot || isUnfiled ? 'none' : '';
-  document.getElementById('folder-ctx-subfolder').style.display = isUnfiled ? 'none' : '';
-  document.getElementById('folder-ctx-sep').style.display       = isSystem  ? 'none' : '';
-  document.getElementById('folder-ctx-delete').style.display    = isSystem  ? 'none' : '';
+  const canAdmin  = hasPerm('folders:manage');
+  const canUpload = hasPerm('documents:create');
+  document.getElementById('folder-ctx-upload').style.display    = !canUpload || isRoot || isUnfiled ? 'none' : '';
+  document.getElementById('folder-ctx-subfolder').style.display = !canAdmin || isUnfiled ? 'none' : '';
+  document.getElementById('folder-ctx-sep').style.display       = !canAdmin || isSystem  ? 'none' : '';
+  document.getElementById('folder-ctx-delete').style.display    = !canAdmin || isSystem  ? 'none' : '';
   const menu = document.getElementById('folder-ctx-menu');
   menu.classList.add('open');
   const vw = window.innerWidth, vh = window.innerHeight;
@@ -911,7 +913,7 @@ async function loadDocFolders(docID) {
   try {
     const r = await apiFetch('/documents/'+docID+'/folders');
     const docFolders = r.ok ? await r.json() : [];
-    const canEdit = hasPerm('documents:update') || (currentDoc && currentDoc.created_by === currentUser?.username);
+    const canEdit = hasPerm('documents:read');
     const items = docFolders.map(f=>`<span class="tag" style="cursor:default">📁 ${escHtml(f.name)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
     sec.innerHTML = `<div class="section-title">Filed In${canEdit?` <button class="btn btn-sm" style="font-size:11px;padding:1px 7px;margin-left:8px" onclick="openFileFoldersModal('${escHtml(docID)}')">Edit</button>`:''}
     </div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${items}</div>`;
