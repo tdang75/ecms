@@ -1072,11 +1072,10 @@ function openUploadModal() {
   if (!hasPerm('documents:create')) { toast('Permission denied','error'); return; }
   selectedFile=null;
   ['file-chosen-label','doc-name','doc-desc','doc-tags'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('doc-class').value='';
-  document.getElementById('class-properties-section').style.display='none';
-  document.getElementById('class-properties-fields').innerHTML='';
+  document.getElementById('doc-class').value='00000000-0000-0000-0000-000000000001';
   document.getElementById('upload-progress-bar').style.display='none';
   document.getElementById('upload-modal').classList.add('open');
+  onClassChange();
 }
 
 function onFileSelect(input) {
