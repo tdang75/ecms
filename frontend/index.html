@@ -348,7 +348,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         <div class="toolbar">
           <select class="filter-select" id="filter-class" onchange="applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
-          <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal()" style="display:none">+ Upload</button>
+          <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal(activeFolderID)" style="display:none">+ Upload</button>
           <div class="ml-auto"></div>
         </div>
         <div id="docs-container"></div>
@@ -425,6 +425,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
 <div class="modal-overlay" id="upload-modal">
   <div class="modal modal-wide">
     <div class="modal-head"><span>☁</span><h2>Upload Document</h2><button class="btn btn-sm" onclick="closeModal('upload-modal')" style="margin-left:auto">✕</button></div>
+    <div id="upload-modal-folder-hint" style="display:none;font-size:12px;color:var(--accent-light);padding:6px 20px 0;font-weight:500"></div>
     <div class="modal-body">
       <div class="form-group">
         <div class="upload-zone" id="upload-zone">
@@ -607,6 +608,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
 
 <!-- ── Folder context menu (admin) ── -->
 <div id="folder-ctx-menu">
+  <div class="ctx-item" id="folder-ctx-upload" onclick="ctxUploadToFolder()">☁ Upload Here</div>
   <div class="ctx-item" id="folder-ctx-subfolder" onclick="addSubFolder()">📁 Create Sub Folder</div>
   <div class="ctx-sep" id="folder-ctx-sep"></div>
   <div class="ctx-item ctx-item-danger" id="folder-ctx-delete" onclick="deleteFolder()">✕ Delete Folder</div>
@@ -666,7 +668,7 @@ const API = window.ECMS_API || '/api';
 let token = null, currentUser = null;
 let docs = [], classes = [], templates = [], groups = [], statsData = null;
 let currentDoc = null, activeClassID = null, activeGroupID = null, activeUserID = null;
-let versionFile = null, selectedFile = null, searchTimeout = null;
+let versionFile = null, selectedFile = null, searchTimeout = null, uploadTargetFolderID = null;
 
 const ALL_PERMS = ['documents:create','documents:read','documents:update','documents:delete','documents:download','taxonomy:create','taxonomy:read','taxonomy:update','taxonomy:delete','users:manage'];
 const PERM_LABELS = {'documents:create':'Create docs','documents:read':'Read docs','documents:update':'Update docs','documents:delete':'Delete docs','documents:download':'Download docs','taxonomy:create':'Create taxonomy','taxonomy:read':'Read taxonomy','taxonomy:update':'Update taxonomy','taxonomy:delete':'Delete taxonomy','users:manage':'Manage users'};
@@ -844,6 +846,8 @@ function showFolderCtxMenu(e, f) {
   _ctxFolder = f;
   const isSystem = SYSTEM_FOLDER_IDS.has(f.id);
   const isUnfiled = f.id === 'f0000000-0000-0000-0000-000000000002';
+  const isRoot    = f.id === 'f0000000-0000-0000-0000-000000000001';
+  document.getElementById('folder-ctx-upload').style.display    = isRoot || isUnfiled ? 'none' : '';
   document.getElementById('folder-ctx-subfolder').style.display = isUnfiled ? 'none' : '';
   document.getElementById('folder-ctx-sep').style.display       = isSystem  ? 'none' : '';
   document.getElementById('folder-ctx-delete').style.display    = isSystem  ? 'none' : '';
@@ -1068,14 +1072,24 @@ function ctxDelete()      { const id = _ctxDocID; hideDocCtxMenu(); if (id) dele
 function ctxFileFolder()  { const id = _ctxDocID; hideDocCtxMenu(); if (id) openFileFoldersModal(id); }
 
 // ── Upload ─────────────────────────────────────────────────────────────────────
-function openUploadModal() {
+function openUploadModal(folderID) {
   if (!hasPerm('documents:create')) { toast('Permission denied','error'); return; }
+  uploadTargetFolderID = folderID || null;
   selectedFile=null;
   ['file-chosen-label','doc-name','doc-desc','doc-tags'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('doc-class').value='00000000-0000-0000-0000-000000000001';
   document.getElementById('upload-progress-bar').style.display='none';
+  const head = document.getElementById('upload-modal-folder-hint');
+  if (head) {
+    const f = folderID ? folders.find(x=>x.id===folderID) : null;
+    head.textContent = f ? `Filing into: 📁 ${f.name}` : '';
+    head.style.display = f ? '' : 'none';
+  }
   document.getElementById('upload-modal').classList.add('open');
   onClassChange();
+}
+function ctxUploadToFolder() {
+  const f = _ctxFolder; hideFolderCtxMenu(); if (f) openUploadModal(f.id);
 }
 
 function onFileSelect(input) {
@@ -1130,7 +1144,12 @@ async function uploadDocument() {
     const r=await apiFetch('/documents',{method:'POST',body:fd});
     clearInterval(iv);document.getElementById('upload-progress-fill').style.width='100%';
     if(!r.ok){const e=await r.json();throw new Error(e.error||'Upload failed');}
-    toast('Document uploaded ✓','success');closeModal('upload-modal');await loadAll();
+    const uploaded=await r.json();
+    if(uploadTargetFolderID && uploaded.id){
+      await apiFetch('/documents/'+uploaded.id+'/folders',{method:'PUT',body:JSON.stringify({folder_ids:[uploadTargetFolderID]})});
+    }
+    uploadTargetFolderID=null;
+    toast('Document uploaded ✓','success');closeModal('upload-modal');await loadAll();await loadFolders();
   }catch(e){clearInterval(iv);toast('Upload failed: '+e.message,'error');}
   finally{btn.disabled=false;btn.innerHTML='↑ Upload to S3';}
 }
