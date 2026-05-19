@@ -348,6 +348,11 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         <div class="toolbar">
           <select class="filter-select" id="filter-class" onchange="applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
+          <div class="search-wrap" style="width:220px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="search-input" placeholder="Search documents…" oninput="debounceSearch()" onkeydown="if(event.key==='Escape'){this.value='';doSearch();}" style="flex:1;background:none;border:none;outline:none;color:var(--text-primary);font-size:13px" />
+            <span id="search-clear" onclick="clearSearch()" style="display:none;cursor:pointer;color:var(--text-muted);font-size:14px;line-height:1" title="Clear">✕</span>
+          </div>
           <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal(activeFolderID)" style="display:none">+ Upload</button>
           <div class="ml-auto"></div>
         </div>
@@ -964,6 +969,8 @@ async function loadAll() {
     if (cls) params.class_id = cls;
     if (status) params.status = status;
     if (activeFolderID) params.folder_id = activeFolderID;
+    const search = (document.getElementById('search-input')||{}).value||'';
+    if (search.trim()) params.search = search.trim();
     const [dr, sr] = await Promise.all([
       apiFetch('/documents?'+new URLSearchParams(params)).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}),
       apiFetch('/stats').then(r=>r.json()),
@@ -2974,7 +2981,21 @@ function showTab(tabId,btnId){
 function filterClass(id){document.getElementById('filter-class').value=id;showView('documents');loadAll();}
 function applyFilters(){loadAll();}
 function refreshAll(){loadAll();loadClasses();toast('Refreshed','success');}
-function debounceSearch(){clearTimeout(searchTimeout);searchTimeout=setTimeout(loadAll,350);}
+function debounceSearch(){
+  clearTimeout(searchTimeout);
+  const val=(document.getElementById('search-input')||{}).value||'';
+  const clr=document.getElementById('search-clear');
+  if(clr)clr.style.display=val.trim()?'':'none';
+  searchTimeout=setTimeout(loadAll,350);
+}
+function doSearch(){loadAll();}
+function clearSearch(){
+  const inp=document.getElementById('search-input');
+  if(inp)inp.value='';
+  const clr=document.getElementById('search-clear');
+  if(clr)clr.style.display='none';
+  loadAll();
+}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
 document.querySelectorAll('.modal-overlay').forEach(o=>{o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});});
