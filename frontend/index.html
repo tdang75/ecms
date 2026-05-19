@@ -245,8 +245,8 @@ tbody tr:hover .row-actions{opacity:1}
 .annot-badge-rectangle{background:rgba(33,150,243,.2);color:#60b4f6}
 .annot-badge-text{background:rgba(76,175,80,.2);color:#6acc6e}
 .annot-badge-redaction{background:rgba(0,0,0,.5);color:#999;border:1px solid #444}
-#doc-ctx-menu{display:none;position:fixed;z-index:400;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:4px 0;min-width:190px;font-size:13px;user-select:none}
-#doc-ctx-menu.open{display:block}
+#doc-ctx-menu,#user-ctx-menu{display:none;position:fixed;z-index:400;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:4px 0;min-width:190px;font-size:13px;user-select:none}
+#doc-ctx-menu.open,#user-ctx-menu.open{display:block}
 .ctx-item{padding:7px 14px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;gap:9px;transition:background .1s;white-space:nowrap}
 .ctx-item:hover{background:var(--bg-hover);color:var(--text-primary)}
 .ctx-item-danger{color:var(--danger)!important}
@@ -310,30 +310,19 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         Users &amp; Groups
       </div>
-      <div class="nav-section">Filter by Class</div>
-      <div id="class-nav-items"></div>
     </nav>
-    <div class="sidebar-footer">
-      <div class="user-pill" onclick="showView('profile')">
-        <div class="user-avatar" id="user-avatar">?</div>
-        <div style="flex:1;min-width:0">
-          <div class="user-name" id="user-display-name">–</div>
-          <div class="user-group" id="user-group-label">–</div>
-        </div>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted)"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-    </div>
   </aside>
 
   <div id="main">
     <header id="topbar">
       <div class="topbar-title" id="page-title">Documents</div>
-      <div class="search-wrap">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="search-input" placeholder="Search documents…" oninput="debounceSearch()" />
+      <div class="user-pill" id="user-pill" onclick="showUserMenu(event)" oncontextmenu="showUserMenu(event)" style="cursor:pointer">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div style="flex:1;min-width:0">
+          <div class="user-name" id="user-display-name">–</div>
+          <div class="user-group" id="user-group-label">–</div>
+        </div>
       </div>
-      <button class="btn" onclick="refreshAll()">↺ Refresh</button>
-      <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal()" style="display:none">+ Upload</button>
     </header>
 
     <div id="content">
@@ -348,6 +337,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         <div class="toolbar">
           <select class="filter-select" id="filter-class" onchange="applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
+          <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal()" style="display:none">+ Upload</button>
           <div class="ml-auto"></div>
         </div>
         <div id="docs-container"></div>
@@ -604,6 +594,13 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
   </div>
 </div>
 
+<!-- ── User context menu ── -->
+<div id="user-ctx-menu">
+  <div class="ctx-item" onclick="hideUserMenu();showView('profile')">👤 User Profile</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item ctx-item-danger" onclick="hideUserMenu();doLogout()">⎋ Sign Out</div>
+</div>
+
 <!-- ── Document context menu ── -->
 <div id="doc-ctx-menu">
   <div class="ctx-item" id="ctx-properties" onclick="ctxProperties()">📋 Properties</div>
@@ -701,8 +698,8 @@ function bootApp() {
   // Show/hide nav items based on permissions
   if (hasPerm('users:manage')) document.getElementById('nav-users').style.display = 'flex';
   if (hasPerm('taxonomy:create')) document.getElementById('nav-taxonomy').style.display = 'flex';
-  if (hasPerm('documents:create')) document.getElementById('upload-btn-top').style.display = 'flex';
   if (hasPerm('taxonomy:create')) { document.getElementById('btn-new-class').style.display = 'flex'; document.getElementById('btn-new-template').style.display = 'flex'; }
+  if (hasPerm('documents:create')) document.getElementById('upload-btn-top').style.display = '';
 
   loadAll();
   loadClasses();
@@ -738,8 +735,6 @@ async function loadTemplates() {
 }
 
 function populateClassFilters() {
-  const nav = document.getElementById('class-nav-items');
-  nav.innerHTML = classes.map(c => `<div class="nav-item" onclick="filterClass('${c.id}')" id="cls-nav-${c.id}"><span style="font-size:13px">${c.icon||'📄'}</span>${escHtml(c.name)}</div>`).join('');
   const sel = document.getElementById('filter-class');
   sel.innerHTML = '<option value="">All classes</option>'+classes.map(c=>`<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
   const up = document.getElementById('doc-class');
@@ -753,10 +748,8 @@ async function loadAll() {
     const params = {};
     const cls = document.getElementById('filter-class').value;
     const status = document.getElementById('filter-status').value||'active';
-    const search = document.getElementById('search-input').value.trim();
     if (cls) params.class_id = cls;
     if (status) params.status = status;
-    if (search) params.search = search;
     const [dr, sr] = await Promise.all([
       apiFetch('/documents?'+new URLSearchParams(params)).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}),
       apiFetch('/stats').then(r=>r.json()),
@@ -791,7 +784,7 @@ function renderDocs() {
   const rows = docs.map(d=>{
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
-    return `<tr class="doc-row" onclick="rowClick('${d.id}')" ondblclick="rowDblClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
+    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
       <td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>
@@ -808,15 +801,12 @@ function renderDocs() {
   c.innerHTML=`<div class="table-wrap"><table><thead><tr><th style="width:32%">Document</th><th>Class</th><th>Tags</th><th>Ver</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-// ── Row click: single → detail (debounced), double → viewer ──────────────────
-let _rowClickTimer = null;
-function rowClick(id) {
-  if (_rowClickTimer) return;
-  _rowClickTimer = setTimeout(() => { _rowClickTimer = null; openDetail(id); }, 220);
-}
-function rowDblClick(id, name, mime) {
-  clearTimeout(_rowClickTimer); _rowClickTimer = null;
+// ── Row click: single → viewer, double → detail ──────────────────────────────
+function rowClick(id, name, mime) {
   viewDocument(id, name, mime);
+}
+function rowDblClick(id) {
+  openDetail(id);
 }
 
 // ── Document context menu ─────────────────────────────────────────────────────
@@ -843,7 +833,21 @@ function showDocCtxMenu(e, id) {
 }
 function hideDocCtxMenu() { document.getElementById('doc-ctx-menu').classList.remove('open'); _ctxDocID = null; }
 document.addEventListener('click', hideDocCtxMenu);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') hideDocCtxMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hideDocCtxMenu(); hideUserMenu(); } });
+
+function showUserMenu(e) {
+  e.preventDefault(); e.stopPropagation();
+  const menu = document.getElementById('user-ctx-menu');
+  menu.classList.add('open');
+  const rect = document.getElementById('user-pill').getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let x = rect.right - menu.offsetWidth, y = rect.bottom + 4;
+  if (x < 8) x = 8;
+  if (y + menu.offsetHeight > vh - 8) y = rect.top - menu.offsetHeight - 4;
+  menu.style.left = x + 'px'; menu.style.top = y + 'px';
+}
+function hideUserMenu() { document.getElementById('user-ctx-menu').classList.remove('open'); }
+document.addEventListener('click', e => { if (!e.target.closest('#user-ctx-menu') && !e.target.closest('#user-pill')) hideUserMenu(); });
 
 function ctxProperties() { const id = _ctxDocID; hideDocCtxMenu(); if (id) openDetail(id); }
 function ctxView() {
