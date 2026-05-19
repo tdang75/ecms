@@ -607,10 +607,9 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
 
 <!-- ── Folder context menu (admin) ── -->
 <div id="folder-ctx-menu">
-  <div class="ctx-item" onclick="addSubFolder()">📁 New Folder</div>
-  <div class="ctx-item" id="folder-ctx-rename" onclick="renameFolder()">✏️ Rename</div>
+  <div class="ctx-item" id="folder-ctx-subfolder" onclick="addSubFolder()">📁 Create Sub Folder</div>
   <div class="ctx-sep" id="folder-ctx-sep"></div>
-  <div class="ctx-item ctx-item-danger" id="folder-ctx-delete" onclick="deleteFolder()">✕ Delete</div>
+  <div class="ctx-item ctx-item-danger" id="folder-ctx-delete" onclick="deleteFolder()">✕ Delete Folder</div>
 </div>
 
 <!-- ── New Folder Modal ── -->
@@ -844,9 +843,10 @@ const SYSTEM_FOLDER_IDS = new Set(['f0000000-0000-0000-0000-000000000001','f0000
 function showFolderCtxMenu(e, f) {
   _ctxFolder = f;
   const isSystem = SYSTEM_FOLDER_IDS.has(f.id);
-  document.getElementById('folder-ctx-rename').style.display = isSystem ? 'none' : '';
-  document.getElementById('folder-ctx-sep').style.display    = isSystem ? 'none' : '';
-  document.getElementById('folder-ctx-delete').style.display = isSystem ? 'none' : '';
+  const isUnfiled = f.id === 'f0000000-0000-0000-0000-000000000002';
+  document.getElementById('folder-ctx-subfolder').style.display = isUnfiled ? 'none' : '';
+  document.getElementById('folder-ctx-sep').style.display       = isSystem  ? 'none' : '';
+  document.getElementById('folder-ctx-delete').style.display    = isSystem  ? 'none' : '';
   const menu = document.getElementById('folder-ctx-menu');
   menu.classList.add('open');
   const vw = window.innerWidth, vh = window.innerHeight;
