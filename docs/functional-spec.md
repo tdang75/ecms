@@ -1,7 +1,7 @@
 # ECMS Functional Specification
 
-**Version:** 1.2  
-**Date:** 2026-05-18  
+**Version:** 1.3  
+**Date:** 2026-05-20  
 **Status:** Current
 
 ---
@@ -43,6 +43,16 @@ The system ships with two built-in groups. Administrators can create additional 
 - **Taxonomy** and **Users & Groups** sections are hidden from users who lack `taxonomy:create` and `users:manage` respectively.
 - All other navigation items are visible to authenticated users.
 
+### 2.4 Sidebar Layout
+
+The left sidebar contains, in order:
+
+1. **File Store** — folder tree for navigating the document hierarchy.
+2. **Search** — advanced document search view.
+3. **Taxonomy** — document class and property template management (hidden for regular users).
+4. **Analytics** — usage statistics dashboard.
+5. **Users & Groups** — user and group management (hidden for regular users).
+
 ---
 
 ## 3. Authentication
@@ -67,9 +77,22 @@ The system ships with two built-in groups. Administrators can create additional 
 ### 4.2 Document List
 
 - Displays all active documents sorted by creation date (newest first).
-- Filter by: status, category, document class, free-text search (name/description), tags.
-- Left sidebar provides class-based filtering.
+- Filter by: status, category, document class (toolbar dropdowns).
+- Left sidebar **File Store** folder tree filters documents to a selected folder.
 - Document count badge shown per class.
+
+### 4.2.1 Advanced Search
+
+A dedicated **Search** sidebar entry provides a structured search form:
+
+- **Class selector**: optionally restrict results to a specific document class.
+- **Full-text field**: searches document name and description.
+- **Condition builder**: one or more property conditions, each specifying:
+  - Property template (filtered to the selected class)
+  - Operator (equals, contains, starts with, greater than, less than, between, etc.)
+  - Value(s)
+- **Logic**: conditions can be combined with AND or OR.
+- Results are returned via `POST /documents/search`.
 
 ### 4.3 Document Detail
 
@@ -87,17 +110,26 @@ Clicking a document row opens a detail panel showing:
 |---|---|
 | Single-click | Opens detail panel (220 ms debounce) |
 | Double-click | Opens document viewer |
-| Right-click | Context menu: Properties, View, Download, Delete |
+| Right-click | Context menu: Properties, View, Download, Delete (Delete visible only to users with `documents:delete` permission or document owners) |
 
 ### 4.5 Update
 
-- Editable fields: name, description, class, category, tags, status, custom properties.
+- Editable fields: name, description, category, tags, status, custom properties.
 - Status values: `active`, `archived`, `deleted`.
+
+#### 4.5.1 Change Document Class
+
+- A document can be reclassified to a different document class via the detail panel.
+- The **Change Class** dialog presents a two-panel side-by-side view:
+  - **Left panel** (read-only): current class properties and their values.
+  - **Right panel** (editable): new class properties pre-filled where a property template ID matches between old and new class; matched fields are highlighted and marked "copied".
+- On confirm: the document's `class_id` is updated and all property values are replaced with the new panel's values (`PUT /documents/{id}/properties?replace_all=true`).
 
 ### 4.6 Deletion
 
 - **Soft delete**: sets `status = 'deleted'`; document is removed from the active list but not from storage.
 - **Hard delete** (`?hard=true`): removes the database record and deletes the S3 object.
+- Users with the `documents:delete` system permission **or** the `owner` ACL entry on a document may delete it.
 
 ### 4.7 Versioning
 
@@ -138,9 +170,13 @@ Annotations are overlaid on PDF, TIFF, and Office documents via a transparent ca
 | Select | Pan / select existing annotations |
 | Highlight | Yellow semi-transparent rectangle |
 | Rectangle | Blue semi-transparent rectangle |
-| Text | Green semi-transparent rectangle (label) |
+| Text | Green semi-transparent rectangle with label |
 | Redaction | Solid black rectangle (obscures content) |
+| Approved stamp | Click-to-place green rubber-stamp overlay reading **APPROVED** |
+| Rejected stamp | Click-to-place red rubber-stamp overlay reading **REJECTED** |
 
+- Stamps are placed with a single click at a fixed size; all other tools require a drag to define the region.
+- Stamp annotations are rendered as a rotated rounded-rectangle border with bold uppercase text, mimicking a physical rubber stamp.
 - Coordinates are stored normalized (0–1 fractions of canvas width/height) so they remain accurate across zoom levels and page sizes.
 - Annotations are persisted per document per page in the database.
 - Any authenticated user with document read access can create annotations.
@@ -263,11 +299,28 @@ Accessible only to users with `users:manage` permission.
 
 ---
 
-## 11. Test Suite
+## 11. Sample Clients
+
+The `samples/` directory contains standalone example programs that demonstrate ECMS API usage.
+
+### 11.1 Go API Client (`samples/go-api-client`)
+
+A standalone Go program (no external dependencies beyond the standard library) that:
+
+1. Downloads a sample PDF from one of several public URLs (IRS W-9, W3C sample, Mozilla PDF.js test), tried in randomised order; falls back to generating a minimal valid PDF in-memory if all URLs fail.
+2. Authenticates as `admin` against the local ECMS instance (`https://localhost:8443/api`).
+3. Uploads the document as a **Contract** with hardcoded metadata (name, description, category, tags, and all four Contract property values).
+
+Run: `cd samples/go-api-client && go run main.go` (requires ECMS running via `docker compose up`).
+
+---
+
+## 12. Test Suite
 
 The backend has 70 automated tests covering:
 
 - Unit tests: `ensureOfficeExt`, `hasPerm`, `getEnv`, JWT, `writeJSON/Error`
 - Integration tests: all API endpoints via `httptest.NewServer` with a real PostgreSQL test database (`ecms_test`) and an in-process S3 mock
+- `TestAnnotations_AllTypes` covers all six annotation types including `stamp-approved` and `stamp-rejected`
 
 Run: `cd backend && go test ./... -timeout 120s` (requires docker-compose postgres on `localhost:5432`).
