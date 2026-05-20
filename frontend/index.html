@@ -954,12 +954,10 @@ function renderFolderTree(nodes, container) {
 }
 
 function selectFolder(id) {
-  activeFolderID = activeFolderID === id ? null : id;
+  activeFolderID = id;
   document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
-  if (activeFolderID) {
-    const el = document.getElementById('folder-nav-'+activeFolderID);
-    if (el) el.classList.add('active');
-  }
+  const el = document.getElementById('folder-nav-'+activeFolderID);
+  if (el) el.classList.add('active');
   showView('documents');
   loadAll();
 }
