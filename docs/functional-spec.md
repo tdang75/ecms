@@ -1,6 +1,6 @@
 # ECMS Functional Specification
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Date:** 2026-05-20  
 **Status:** Current
 
@@ -170,13 +170,17 @@ Annotations are overlaid on PDF, TIFF, and Office documents via a transparent ca
 | Select | Pan / select existing annotations |
 | Highlight | Yellow semi-transparent rectangle |
 | Rectangle | Blue semi-transparent rectangle |
+| Arrow | Orange directional arrow drawn by dragging from tail to head |
 | Text | Green semi-transparent rectangle with label |
 | Redaction | Solid black rectangle (obscures content) |
 | Approved stamp | Click-to-place green rubber-stamp overlay reading **APPROVED** |
 | Rejected stamp | Click-to-place red rubber-stamp overlay reading **REJECTED** |
 
-- Stamps are placed with a single click at a fixed size; all other tools require a drag to define the region.
+- **Stamps** are placed with a single click at a fixed size.
+- **Arrows** are drawn by dragging; stored as a start point plus a signed delta so direction is preserved regardless of angle (horizontal, vertical, and diagonal arrows all work correctly).
+- All other tools require a drag to define the region.
 - Stamp annotations are rendered as a rotated rounded-rectangle border with bold uppercase text, mimicking a physical rubber stamp.
+- Arrow annotations are rendered as a shaft line with a filled triangular arrowhead.
 - Coordinates are stored normalized (0–1 fractions of canvas width/height) so they remain accurate across zoom levels and page sizes.
 - Annotations are persisted per document per page in the database.
 - Any authenticated user with document read access can create annotations.
@@ -321,6 +325,6 @@ The backend has 70 automated tests covering:
 
 - Unit tests: `ensureOfficeExt`, `hasPerm`, `getEnv`, JWT, `writeJSON/Error`
 - Integration tests: all API endpoints via `httptest.NewServer` with a real PostgreSQL test database (`ecms_test`) and an in-process S3 mock
-- `TestAnnotations_AllTypes` covers all six annotation types including `stamp-approved` and `stamp-rejected`
+- `TestAnnotations_AllTypes` covers all seven annotation types including `stamp-approved`, `stamp-rejected`, and `arrow`
 
 Run: `cd backend && go test ./... -timeout 120s` (requires docker-compose postgres on `localhost:5432`).
