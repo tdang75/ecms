@@ -619,7 +619,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
       <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="class-desc" style="min-height:60px" placeholder="What documents belong to this class…"></textarea></div>
       <div id="class-detail-props"></div>
     </div>
-    <div class="modal-foot"><button class="btn" onclick="closeModal('class-modal')">Cancel</button><button class="btn btn-primary" id="save-class-btn" onclick="saveClass()">Save Class</button></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('class-modal')">Cancel</button><button class="btn btn-danger" id="delete-class-btn" onclick="deleteClass()" style="display:none">Delete Class</button><button class="btn btn-primary" id="save-class-btn" onclick="saveClass()">Save Class</button></div>
   </div>
 </div>
 
@@ -1413,10 +1413,11 @@ async function openClassDetail(id) {
       ${props.length?props.map(p=>{const t=p.template;return`<div class="prop-field" style="flex-direction:row;align-items:center;justify-content:space-between"><div><span class="prop-label">${escHtml(t.display_name)}</span><span class="type-pill" style="margin-left:6px;color:${TYPE_COLORS[t.data_type]||'#6b7280'}">${t.data_type}</span>${(p.is_required??t.is_required)?'<span class="badge badge-red" style="margin-left:4px;font-size:10px">req</span>':''}</div>${canEdit?`<button class="btn btn-sm btn-danger" onclick="removePropertyFromClass('${id}','${t.id}')">Remove</button>`:''}</div>`;}).join(''):'<div style="padding:10px;color:var(--text-muted);font-size:13px">No properties assigned</div>'}
     </div>
     ${canEdit?`<button class="btn" onclick="openAssignPropModal('${id}')">+ Assign Property</button>`:''}`;
+  document.getElementById('delete-class-btn').style.display = hasPerm('taxonomy:delete') ? '' : 'none';
   document.getElementById('class-modal').classList.add('open');
 }
 
-function openCreateClassModal(){activeClassID=null;document.getElementById('class-modal-title').textContent='New Document Class';document.getElementById('class-name').value='';document.getElementById('class-icon').value='📄';document.getElementById('class-desc').value='';document.getElementById('class-detail-props').innerHTML='';document.getElementById('save-class-btn').style.display='';document.getElementById('class-modal').classList.add('open');}
+function openCreateClassModal(){activeClassID=null;document.getElementById('class-modal-title').textContent='New Document Class';document.getElementById('class-name').value='';document.getElementById('class-icon').value='📄';document.getElementById('class-desc').value='';document.getElementById('class-detail-props').innerHTML='';document.getElementById('save-class-btn').style.display='';document.getElementById('delete-class-btn').style.display='none';document.getElementById('class-modal').classList.add('open');}
 
 async function saveClass(){
   const name=document.getElementById('class-name').value.trim();
@@ -1425,6 +1426,16 @@ async function saveClass(){
   const r=activeClassID?await apiFetch('/classes/'+activeClassID,{method:'PUT',body:JSON.stringify(body)}):await apiFetch('/classes',{method:'POST',body:JSON.stringify(body)});
   if(!r.ok){toast('Failed','error');return;}
   toast(activeClassID?'Class updated':'Class created','success');closeModal('class-modal');await renderClassesView();
+}
+
+async function deleteClass() {
+  if (!confirm('Delete this document class?\n\nDeletion is blocked if any documents (including archived or deleted) still reference it.')) return;
+  const r = await apiFetch('/classes/' + activeClassID, {method: 'DELETE'});
+  const data = await r.json();
+  if (!r.ok) { toast(data.error || 'Failed to delete class', 'error'); return; }
+  toast('Class deleted', 'success');
+  closeModal('class-modal');
+  await renderClassesView();
 }
 
 function openAssignPropModal(classID){

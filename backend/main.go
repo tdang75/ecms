@@ -1188,7 +1188,17 @@ func (a *App) handleUpdateClass(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeleteClass(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	a.db.Exec(context.Background(), `DELETE FROM document_classes WHERE id=$1`, id)
+	var count int
+	a.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM documents WHERE class_id=$1`, id).Scan(&count)
+	if count > 0 {
+		writeError(w, 409, fmt.Sprintf("cannot delete: %d document(s) still use this class", count))
+		return
+	}
+	ct, err := a.db.Exec(context.Background(), `DELETE FROM document_classes WHERE id=$1`, id)
+	if err != nil || ct.RowsAffected() == 0 {
+		writeError(w, 404, "class not found")
+		return
+	}
 	writeJSON(w, 200, map[string]bool{"success": true})
 }
 
