@@ -227,6 +227,22 @@ type AuditEntry struct {
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
+type SearchCondition struct {
+	PropertyID string `json:"property_id"`
+	Operator   string `json:"operator"`
+	Value      string `json:"value"`
+	Value2     string `json:"value2"`
+}
+
+type AdvancedSearchRequest struct {
+	Status     string            `json:"status"`
+	Text       string            `json:"text"`
+	ClassID    string            `json:"class_id"`
+	FolderID   string            `json:"folder_id"`
+	Logic      string            `json:"logic"`
+	Conditions []SearchCondition `json:"conditions"`
+}
+
 type Annotation struct {
 	ID         string    `json:"id"`
 	DocumentID string    `json:"document_id"`
@@ -1344,10 +1360,149 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	args := []any{status}; i := 2
 	if cat := q.Get("category"); cat != "" { query += fmt.Sprintf(" AND d.category=$%d", i); args = append(args, cat); i++ }
 	if cls := q.Get("class_id"); cls != "" { query += fmt.Sprintf(" AND d.class_id=$%d", i); args = append(args, cls); i++ }
-	if s := q.Get("search"); s != "" { query += fmt.Sprintf(" AND (d.name ILIKE $%d OR d.description ILIKE $%d)", i, i); args = append(args, "%"+s+"%"); i++ }
+	if s := q.Get("search"); s != "" {
+		query += fmt.Sprintf(" AND (d.name ILIKE $%d OR d.description ILIKE $%d OR EXISTS (SELECT 1 FROM unnest(d.tags) t WHERE t ILIKE $%d))", i, i, i)
+		args = append(args, "%"+s+"%"); i++
+	}
 	if t := q.Get("tags"); t != "" { query += fmt.Sprintf(" AND d.tags && $%d", i); args = append(args, strings.Split(t, ",")); i++ }
 	if fid := q.Get("folder_id"); fid != "" { query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM document_folders df WHERE df.document_id=d.id AND df.folder_id=$%d)", i); args = append(args, fid); i++ }
 	_ = i
+	query += " ORDER BY d.created_at DESC"
+	rows, err := a.db.Query(context.Background(), query, args...)
+	if err != nil { writeError(w, 500, err.Error()); return }
+	defer rows.Close()
+	docs := []Document{}
+	for rows.Next() {
+		if d, err := scanDoc(rows); err == nil { docs = append(docs, d) }
+	}
+	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
+}
+
+func advDTColumn(dt string) string {
+	switch dt {
+	case "string", "user": return "value_string"
+	case "integer":        return "value_integer"
+	case "decimal":        return "value_decimal"
+	case "boolean":        return "value_boolean"
+	case "date":           return "value_date"
+	case "datetime":       return "value_datetime"
+	}
+	return ""
+}
+
+func advDTCast(dt string) string {
+	switch dt {
+	case "integer":  return "::bigint"
+	case "decimal":  return "::numeric"
+	case "date":     return "::date"
+	case "datetime": return "::timestamptz"
+	}
+	return ""
+}
+
+func (a *App) handleAdvancedSearch(w http.ResponseWriter, r *http.Request) {
+	var req AdvancedSearchRequest
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.Status == "" { req.Status = "active" }
+	if req.Logic != "OR" { req.Logic = "AND" }
+
+	query := `SELECT ` + docCols + ` ` + docFrom + ` WHERE d.status=$1`
+	args := []any{req.Status}; i := 2
+
+	if req.ClassID != "" {
+		query += fmt.Sprintf(" AND d.class_id=$%d", i); args = append(args, req.ClassID); i++
+	}
+	if req.Text != "" {
+		query += fmt.Sprintf(" AND (d.name ILIKE $%d OR d.description ILIKE $%d OR EXISTS (SELECT 1 FROM unnest(d.tags) t WHERE t ILIKE $%d))", i, i, i)
+		args = append(args, "%"+req.Text+"%"); i++
+	}
+	if req.FolderID != "" {
+		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM document_folders df WHERE df.document_id=d.id AND df.folder_id=$%d)", i)
+		args = append(args, req.FolderID); i++
+	}
+
+	if len(req.Conditions) > 0 {
+		var parts []string
+		for _, cond := range req.Conditions {
+			if cond.PropertyID == "" || cond.Operator == "" { continue }
+			var dt string
+			if err := a.db.QueryRow(context.Background(), `SELECT data_type FROM property_templates WHERE id=$1`, cond.PropertyID).Scan(&dt); err != nil { continue }
+			col := advDTColumn(dt)
+			if col == "" { continue }
+			cast := advDTCast(dt)
+
+			propIdx := i
+			var part string
+			var extra []any
+			ex := fmt.Sprintf("EXISTS (SELECT 1 FROM document_property_values dpv WHERE dpv.document_id=d.id AND dpv.property_template_id=$%d", propIdx)
+			nex := fmt.Sprintf("NOT EXISTS (SELECT 1 FROM document_property_values dpv WHERE dpv.document_id=d.id AND dpv.property_template_id=$%d", propIdx)
+
+			switch cond.Operator {
+			case "contains":
+				part = ex + fmt.Sprintf(" AND dpv.%s ILIKE $%d)", col, propIdx+1)
+				extra = []any{cond.PropertyID, "%" + cond.Value + "%"}
+			case "not_contains":
+				part = nex + fmt.Sprintf(" AND dpv.%s ILIKE $%d)", col, propIdx+1)
+				extra = []any{cond.PropertyID, "%" + cond.Value + "%"}
+			case "equals":
+				part = ex + fmt.Sprintf(" AND dpv.%s = $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "not_equals":
+				part = nex + fmt.Sprintf(" AND dpv.%s = $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "starts_with":
+				part = ex + fmt.Sprintf(" AND dpv.%s ILIKE $%d)", col, propIdx+1)
+				extra = []any{cond.PropertyID, cond.Value + "%"}
+			case "ends_with":
+				part = ex + fmt.Sprintf(" AND dpv.%s ILIKE $%d)", col, propIdx+1)
+				extra = []any{cond.PropertyID, "%" + cond.Value}
+			case "is_empty":
+				part = nex + fmt.Sprintf(" AND dpv.%s IS NOT NULL)", col)
+				extra = []any{cond.PropertyID}
+			case "is_not_empty":
+				part = ex + fmt.Sprintf(" AND dpv.%s IS NOT NULL)", col)
+				extra = []any{cond.PropertyID}
+			case "gt":
+				part = ex + fmt.Sprintf(" AND dpv.%s > $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "gte":
+				part = ex + fmt.Sprintf(" AND dpv.%s >= $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "lt":
+				part = ex + fmt.Sprintf(" AND dpv.%s < $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "lte":
+				part = ex + fmt.Sprintf(" AND dpv.%s <= $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "between":
+				part = ex + fmt.Sprintf(" AND dpv.%s >= $%d%s AND dpv.%s <= $%d%s)", col, propIdx+1, cast, col, propIdx+2, cast)
+				extra = []any{cond.PropertyID, cond.Value, cond.Value2}
+			case "is_true":
+				part = ex + fmt.Sprintf(" AND dpv.%s = TRUE)", col)
+				extra = []any{cond.PropertyID}
+			case "is_false":
+				part = ex + fmt.Sprintf(" AND dpv.%s = FALSE)", col)
+				extra = []any{cond.PropertyID}
+			case "before":
+				part = ex + fmt.Sprintf(" AND dpv.%s < $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			case "after":
+				part = ex + fmt.Sprintf(" AND dpv.%s > $%d%s)", col, propIdx+1, cast)
+				extra = []any{cond.PropertyID, cond.Value}
+			}
+			if part != "" {
+				parts = append(parts, part)
+				args = append(args, extra...)
+				i += len(extra)
+			}
+		}
+		if len(parts) > 0 {
+			joiner := " AND "
+			if req.Logic == "OR" { joiner = " OR " }
+			query += " AND (" + strings.Join(parts, joiner) + ")"
+		}
+	}
+
 	query += " ORDER BY d.created_at DESC"
 	rows, err := a.db.Query(context.Background(), query, args...)
 	if err != nil { writeError(w, 500, err.Error()); return }
@@ -1990,6 +2145,7 @@ func (a *App) buildMux() http.Handler {
 
 	// Documents
 	mux.HandleFunc("GET /documents",                 a.requireAuth(PermDocRead,     a.handleListDocuments))
+	mux.HandleFunc("POST /documents/search",         a.requireAuth(PermDocRead,     a.handleAdvancedSearch))
 	mux.HandleFunc("GET /documents/{id}",            a.requireAuth(PermDocRead,     a.handleGetDocument))
 	mux.HandleFunc("POST /documents",                a.requireAuth(PermDocCreate,   a.handleUploadDocument))
 	mux.HandleFunc("PUT /documents/{id}",            a.requireAuthOrOwner(PermDocUpdate,   a.handleUpdateDocument))

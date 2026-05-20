@@ -71,6 +71,31 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 .search-wrap:focus-within{border-color:var(--border-accent)}
 .search-wrap input{background:none;border:none;outline:none;color:var(--text-primary);font-size:13px;width:100%}
 .search-wrap input::placeholder{color:var(--text-muted)}
+/* ── Advanced Search View ── */
+.adv-search-pane{padding:20px 24px;max-width:780px}
+.adv-search-pane h2{font-size:15px;font-weight:600;margin:0 0 18px;color:var(--text-primary)}
+.adv-field-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.adv-field-row label{font-size:12px;color:var(--text-muted);width:110px;flex-shrink:0;text-align:right}
+.adv-field-row input,.adv-field-row select{flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:13px;padding:0 10px;height:32px;outline:none;max-width:360px}
+.adv-field-row input:focus,.adv-field-row select:focus{border-color:var(--border-accent)}
+.adv-conds-section{margin:16px 0;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.adv-conds-head{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg-hover);border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-secondary);letter-spacing:.4px;text-transform:uppercase}
+.adv-conds-head select{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:12px;padding:2px 8px;height:26px;outline:none;cursor:pointer}
+.adv-conds-head select:focus{border-color:var(--border-accent)}
+.adv-cond-row{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)}
+.adv-cond-row:last-child{border-bottom:none}
+.adv-sel{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:12px;padding:0 8px;height:30px;outline:none;cursor:pointer}
+.adv-sel:focus{border-color:var(--border-accent)}
+.adv-sel.adv-prop-sel{min-width:160px}
+.adv-sel.adv-op-sel{min-width:140px}
+.adv-val-wrap{display:flex;align-items:center;gap:6px;flex:1}
+.adv-val-input{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:12px;padding:0 8px;height:30px;outline:none;flex:1;min-width:0}
+.adv-val-input:focus{border-color:var(--border-accent)}
+.adv-cond-rm{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:var(--radius);line-height:1}
+.adv-cond-rm:hover{color:var(--danger);background:rgba(239,68,68,.08)}
+.adv-add-cond{margin:10px 12px;font-size:12px}
+.adv-search-actions{display:flex;gap:8px;margin-top:20px}
+.adv-results-header{padding:0 0 10px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border);margin-bottom:12px}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:31px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap}
 .btn:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border-hover)}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -309,6 +334,10 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Workspace</div>
+      <div class="nav-item" onclick="showView('search')" id="nav-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Search
+      </div>
       <div class="nav-item" onclick="showView('taxonomy')" id="nav-taxonomy" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Taxonomy
@@ -406,6 +435,60 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         </div>
         <div id="tab-groups" class="tab-content">
           <div id="groups-container"><div class="page-loading"><div class="spinner"></div> Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- Search View -->
+      <div id="view-search" style="display:none">
+        <div class="adv-search-pane">
+          <h2>Search Documents</h2>
+          <div class="adv-field-row">
+            <label>Keywords</label>
+            <input type="text" id="adv-text" placeholder="Name, description, or tags…" onkeydown="if(event.key==='Enter')execAdvSearch()">
+          </div>
+          <div class="adv-field-row">
+            <label>Status</label>
+            <select id="adv-status">
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
+              <option value="">All statuses</option>
+            </select>
+          </div>
+          <div class="adv-field-row">
+            <label>Document Class</label>
+            <select id="adv-class" onchange="onAdvClassChange()">
+              <option value="">All classes</option>
+            </select>
+          </div>
+
+          <div class="adv-conds-section" id="adv-conds-section" style="display:none">
+            <div class="adv-conds-head">
+              <span>Property Conditions</span>
+              <div style="display:flex;align-items:center;gap:6px;font-weight:400;text-transform:none;letter-spacing:0">
+                Match
+                <select id="adv-logic">
+                  <option value="AND">ALL conditions (AND)</option>
+                  <option value="OR">ANY condition (OR)</option>
+                </select>
+              </div>
+            </div>
+            <div id="adv-conds-list"></div>
+            <div style="padding:8px 12px">
+              <button class="btn adv-add-cond" onclick="addAdvCondition()" style="font-size:12px">+ Add Condition</button>
+            </div>
+          </div>
+
+          <div class="adv-search-actions">
+            <button class="btn btn-primary adv-search-btn" onclick="execAdvSearch()">🔍 Search</button>
+            <button class="btn" onclick="clearAdvSearch()">Clear</button>
+          </div>
+        </div>
+
+        <div id="adv-results" style="display:none;padding:0 24px 24px">
+          <div class="adv-results-header">
+            <strong id="adv-results-count">0 results</strong>
+          </div>
+          <div id="adv-results-container"></div>
         </div>
       </div>
 
@@ -2959,16 +3042,17 @@ document.addEventListener('keydown', e => {
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
 function showView(v){
-  const views=['documents','taxonomy','analytics','users','profile'];
+  const views=['documents','taxonomy','analytics','users','profile','search'];
   views.forEach(n=>{const el=document.getElementById('view-'+n);if(el)el.style.display=n===v?'':'none';});
-  const navs=['taxonomy','analytics','users'];
+  const navs=['taxonomy','analytics','users','search'];
   navs.forEach(n=>{const el=document.getElementById('nav-'+n);if(el)el.classList.toggle('active',n===v);});
-  const titles={documents:'File Store',taxonomy:'Taxonomy',analytics:'Analytics',users:'Users & Groups',profile:'My Profile'};
+  const titles={documents:'File Store',taxonomy:'Taxonomy',analytics:'Analytics',users:'Users & Groups',profile:'My Profile',search:'Search'};
   document.getElementById('page-title').textContent=titles[v]||v;
   if(v==='taxonomy'){renderClassesView();renderTemplatesView();}
   if(v==='analytics'&&statsData)updateStats(statsData);
   if(v==='users'){renderUsersView();renderGroupsView();}
   if(v==='profile')renderProfile();
+  if(v==='search')initAdvSearch();
 }
 
 function showTab(tabId,btnId){
@@ -2976,6 +3060,169 @@ function showTab(tabId,btnId){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
   document.getElementById(btnId).classList.add('active');
+}
+
+// ── Advanced Search ─────────────────────────────────────────────────────────────
+let advSearchClassProps = [];
+
+const ADV_OPS = {
+  string: [{v:'contains',l:'contains'},{v:'not_contains',l:'does not contain'},{v:'equals',l:'equals'},{v:'not_equals',l:'does not equal'},{v:'starts_with',l:'starts with'},{v:'ends_with',l:'ends with'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+  user:   [{v:'contains',l:'contains'},{v:'not_contains',l:'does not contain'},{v:'equals',l:'equals'},{v:'not_equals',l:'does not equal'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+  integer:[{v:'equals',l:'='},{v:'not_equals',l:'≠'},{v:'gt',l:'>'},{v:'gte',l:'≥'},{v:'lt',l:'<'},{v:'lte',l:'≤'},{v:'between',l:'between'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+  decimal:[{v:'equals',l:'='},{v:'not_equals',l:'≠'},{v:'gt',l:'>'},{v:'gte',l:'≥'},{v:'lt',l:'<'},{v:'lte',l:'≤'},{v:'between',l:'between'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+  boolean:[{v:'is_true',l:'is true'},{v:'is_false',l:'is false'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+  date:   [{v:'equals',l:'on'},{v:'before',l:'before'},{v:'after',l:'after'},{v:'between',l:'between'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+  datetime:[{v:'equals',l:'on'},{v:'before',l:'before'},{v:'after',l:'after'},{v:'between',l:'between'},{v:'is_empty',l:'is empty'},{v:'is_not_empty',l:'is not empty'}],
+};
+const ADV_NO_VAL = new Set(['is_empty','is_not_empty','is_true','is_false']);
+const ADV_TWO_VAL = new Set(['between']);
+
+function initAdvSearch() {
+  const sel = document.getElementById('adv-class');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">All classes</option>' +
+    classes.map(c => `<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
+}
+
+async function onAdvClassChange() {
+  const classID = document.getElementById('adv-class').value;
+  const section = document.getElementById('adv-conds-section');
+  document.getElementById('adv-conds-list').innerHTML = '';
+  advSearchClassProps = [];
+  if (!classID) { section.style.display = 'none'; return; }
+  try {
+    const r = await apiFetch('/classes/' + classID);
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    advSearchClassProps = (data.properties || []).map(p => ({
+      id: p.template ? p.template.id : p.property_template_id,
+      display_name: p.template ? p.template.display_name : (p.display_name || ''),
+      data_type: p.template ? p.template.data_type : (p.data_type || 'string'),
+    }));
+    section.style.display = '';
+  } catch(e) { toast('Failed to load class properties','error'); }
+}
+
+function addAdvCondition() {
+  if (!advSearchClassProps.length) { toast('Select a document class first','warning'); return; }
+  const list = document.getElementById('adv-conds-list');
+  const row = document.createElement('div'); row.className = 'adv-cond-row';
+  const propOpts = advSearchClassProps.map(p =>
+    `<option value="${p.id}" data-type="${p.data_type}">${escHtml(p.display_name)}</option>`).join('');
+  row.innerHTML = `
+    <select class="adv-sel adv-prop-sel" onchange="onAdvPropChange(this)">
+      <option value="">Property…</option>${propOpts}
+    </select>
+    <select class="adv-sel adv-op-sel" disabled onchange="onAdvOpChange(this)">
+      <option value="">Operator…</option>
+    </select>
+    <div class="adv-val-wrap" style="display:none"></div>
+    <button class="adv-cond-rm" onclick="this.closest('.adv-cond-row').remove()" title="Remove">✕</button>`;
+  list.appendChild(row);
+}
+
+function onAdvPropChange(sel) {
+  const row = sel.closest('.adv-cond-row');
+  const opSel = row.querySelector('.adv-op-sel');
+  const valWrap = row.querySelector('.adv-val-wrap');
+  const opt = sel.options[sel.selectedIndex];
+  const dt = opt ? opt.dataset.type : '';
+  opSel.innerHTML = '<option value="">Operator…</option>';
+  valWrap.innerHTML = ''; valWrap.style.display = 'none';
+  if (!dt || !sel.value) { opSel.disabled = true; return; }
+  (ADV_OPS[dt] || ADV_OPS.string).forEach(op => {
+    const o = document.createElement('option'); o.value = op.v; o.textContent = op.l;
+    opSel.appendChild(o);
+  });
+  opSel.disabled = false;
+  opSel.dataset.dtype = dt;
+}
+
+function onAdvOpChange(opSel) {
+  const row = opSel.closest('.adv-cond-row');
+  const valWrap = row.querySelector('.adv-val-wrap');
+  const op = opSel.value;
+  const dt = opSel.dataset.dtype || 'string';
+  valWrap.innerHTML = '';
+  if (ADV_NO_VAL.has(op) || !op) { valWrap.style.display = 'none'; return; }
+  valWrap.style.display = '';
+  const itype = (dt==='date'||dt==='datetime') ? 'date' : (dt==='integer'||dt==='decimal') ? 'number' : 'text';
+  const step = dt==='decimal' ? ' step="any"' : dt==='integer' ? ' step="1"' : '';
+  if (ADV_TWO_VAL.has(op)) {
+    valWrap.innerHTML = `<input class="adv-val-input" type="${itype}"${step} placeholder="From…"><span style="color:var(--text-muted);padding:0 4px;flex-shrink:0">–</span><input class="adv-val-input" type="${itype}"${step} placeholder="To…">`;
+  } else {
+    valWrap.innerHTML = `<input class="adv-val-input" type="${itype}"${step} placeholder="Value…">`;
+  }
+}
+
+async function execAdvSearch() {
+  const body = {
+    status: document.getElementById('adv-status').value,
+    text: (document.getElementById('adv-text').value||'').trim(),
+    class_id: document.getElementById('adv-class').value,
+    logic: document.getElementById('adv-logic').value || 'AND',
+    conditions: [],
+  };
+  document.querySelectorAll('#adv-conds-list .adv-cond-row').forEach(row => {
+    const propSel = row.querySelector('.adv-prop-sel');
+    const opSel = row.querySelector('.adv-op-sel');
+    const inputs = row.querySelectorAll('.adv-val-input');
+    if (!propSel.value || !opSel.value) return;
+    body.conditions.push({
+      property_id: propSel.value,
+      operator: opSel.value,
+      value: inputs[0] ? inputs[0].value : '',
+      value2: inputs[1] ? inputs[1].value : '',
+    });
+  });
+  const btn = document.querySelector('.adv-search-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
+  try {
+    const r = await apiFetch('/documents/search', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    renderAdvResults(data.documents || []);
+  } catch(e) {
+    toast('Search failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Search'; }
+  }
+}
+
+function clearAdvSearch() {
+  document.getElementById('adv-text').value = '';
+  document.getElementById('adv-class').value = '';
+  document.getElementById('adv-status').value = 'active';
+  const logicEl = document.getElementById('adv-logic'); if(logicEl) logicEl.value = 'AND';
+  document.getElementById('adv-conds-list').innerHTML = '';
+  document.getElementById('adv-conds-section').style.display = 'none';
+  document.getElementById('adv-results').style.display = 'none';
+  advSearchClassProps = [];
+}
+
+function renderAdvResults(docList) {
+  const resultsDiv = document.getElementById('adv-results');
+  const countEl = document.getElementById('adv-results-count');
+  const container = document.getElementById('adv-results-container');
+  countEl.textContent = docList.length + ' document' + (docList.length !== 1 ? 's' : '') + ' found';
+  if (!docList.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><h3>No results</h3><p>Try adjusting your search criteria.</p></div>';
+    resultsDiv.style.display = '';
+    return;
+  }
+  const rows = docList.map(d => {
+    const [col,bg] = fileColor(d.name);
+    const cls = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
+    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
+      <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
+      <td>${cls}</td>
+      <td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>
+      <td>${fmtSize(d.file_size)}</td>
+      <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
+    </tr>`;
+  }).join('');
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th style="width:36%">Document</th><th>Class</th><th>Tags</th><th>Size</th><th>Uploaded</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  resultsDiv.style.display = '';
 }
 
 function filterClass(id){document.getElementById('filter-class').value=id;showView('documents');loadAll();}
