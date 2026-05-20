@@ -1078,10 +1078,11 @@ function updateStats(s) {
 function renderDocs() {
   const c = document.getElementById('docs-container');
   if (!docs.length) { c.innerHTML=`<div class="table-wrap"><div class="empty"><div class="empty-icon">📁</div><h3>No documents</h3><p>Upload your first document to get started.</p>${hasPerm('documents:create')?'<button class="btn btn-primary" onclick="openUploadModal()">Upload Document</button>':''}</div></div>`; return; }
-  const canWrite = hasPerm('documents:delete'); const canDl = hasPerm('documents:download');
+  const canDl = hasPerm('documents:download');
   const rows = docs.map(d=>{
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
+    const canDel = hasPerm('documents:delete') || (currentUser && d.created_by === currentUser.username);
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
@@ -1090,9 +1091,9 @@ function renderDocs() {
       <td>${fmtSize(d.file_size)}</td>
       <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
       <td><div class="row-actions" onclick="event.stopPropagation()">
-        ${hasPerm('documents:download')?`<button class="btn btn-sm" onclick="viewDocument('${d.id}','${escHtml(d.name)}','${escHtml(d.mime_type||'')}')" title="View">👁</button>`:''}
+        ${canDl?`<button class="btn btn-sm" onclick="viewDocument('${d.id}','${escHtml(d.name)}','${escHtml(d.mime_type||'')}')" title="View">👁</button>`:''}
         ${canDl?`<button class="btn btn-sm" onclick="downloadDocById('${d.id}')">↓</button>`:''}
-        ${canWrite?`<button class="btn btn-sm btn-danger" onclick="deleteDocById('${d.id}')">✕</button>`:''}
+        ${canDel?`<button class="btn btn-sm btn-danger" onclick="deleteDocById('${d.id}')">✕</button>`:''}
       </div></td>
     </tr>`;
   }).join('');
@@ -1115,7 +1116,9 @@ function showDocCtxMenu(e, id) {
   e.stopPropagation();
   _ctxDocID = id;
   const canDl  = hasPerm('documents:download');
-  const canDel = hasPerm('documents:delete');
+  const doc    = [...docs, ...(window._advDocs||[])].find(d => d.id === id);
+  const isOwner = doc && currentUser && doc.created_by === currentUser.username;
+  const canDel = hasPerm('documents:delete') || isOwner;
   document.getElementById('ctx-view').style.display     = canDl  ? '' : 'none';
   document.getElementById('ctx-download').style.display = canDl  ? '' : 'none';
   document.getElementById('ctx-sep-delete').style.display = canDel ? '' : 'none';
@@ -3196,6 +3199,7 @@ function clearAdvSearch() {
 }
 
 function renderAdvResults(docList) {
+  window._advDocs = docList;
   const resultsDiv = document.getElementById('adv-results');
   const countEl = document.getElementById('adv-results-count');
   const container = document.getElementById('adv-results-container');
