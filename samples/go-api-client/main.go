@@ -15,9 +15,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
+	"path/filepath"
 )
 
 // httpClient skips TLS verification for the local self-signed certificate.
@@ -117,6 +120,7 @@ func main() {
 	fmt.Printf("  Class:   %s %s\n", str(doc["class_icon"]), str(doc["class_name"]))
 	fmt.Printf("  Status:  %s\n", str(doc["status"]))
 	fmt.Printf("  Version: v%.0f\n", numF(doc["version"]))
+	fmt.Printf("  MIME:    %s\n", str(doc["mime_type"]))
 	fmt.Printf("  Size:    %.0f bytes\n", numF(doc["file_size"]))
 }
 
@@ -221,9 +225,17 @@ func uploadDocument(token string, data []byte, filename string, p uploadParams) 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
-	fw, err := w.CreateFormFile("file", filename)
+	// Detect MIME type from filename extension so the server stores it correctly.
+	mimeType := mime.TypeByExtension(filepath.Ext(filename))
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+	h.Set("Content-Type", mimeType)
+	fw, err := w.CreatePart(h)
 	if err != nil {
-		return nil, fmt.Errorf("create form file: %w", err)
+		return nil, fmt.Errorf("create form part: %w", err)
 	}
 	if _, err = fw.Write(data); err != nil {
 		return nil, err
