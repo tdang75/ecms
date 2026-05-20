@@ -284,6 +284,8 @@ tbody tr:hover .row-actions{opacity:1}
 .annot-badge-rectangle{background:rgba(33,150,243,.2);color:#60b4f6}
 .annot-badge-text{background:rgba(76,175,80,.2);color:#6acc6e}
 .annot-badge-redaction{background:rgba(0,0,0,.5);color:#999;border:1px solid #444}
+.annot-badge-stamp-approved{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.6)}
+.annot-badge-stamp-rejected{background:rgba(220,53,69,.15);color:#e05567;border:1px solid rgba(220,53,69,.6)}
 #doc-ctx-menu,#user-ctx-menu,#folder-ctx-menu{display:none;position:fixed;z-index:400;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:4px 0;min-width:190px;font-size:13px;user-select:none}
 #doc-ctx-menu.open,#user-ctx-menu.open,#folder-ctx-menu.open{display:block}
 .ctx-item{padding:7px 14px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;gap:9px;transition:background .1s;white-space:nowrap}
@@ -716,6 +718,9 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
     <button class="viewer-btn tool-btn"        id="tool-rectangle" onclick="setAnnotTool('rectangle')" title="Rectangle annotation">□</button>
     <button class="viewer-btn tool-btn"        id="tool-text"      onclick="setAnnotTool('text')"      title="Text note">T</button>
     <button class="viewer-btn tool-btn"        id="tool-redact"    onclick="setAnnotTool('redaction')" title="Redact (black out)">■ Redact</button>
+    <div class="viewer-sep"></div>
+    <button class="viewer-btn tool-btn" id="tool-stamp-approved" onclick="setAnnotTool('stamp-approved')" title="Place Approved stamp" style="color:#4caf50">✔ Approved</button>
+    <button class="viewer-btn tool-btn" id="tool-stamp-rejected" onclick="setAnnotTool('stamp-rejected')" title="Place Rejected stamp" style="color:#e05567">✘ Rejected</button>
   </div>
   <div id="viewer-layout">
     <div id="viewer-body">
@@ -2833,10 +2838,12 @@ async function renderCurrentPage() {
 const ANNOT_FILL = {
   highlight:'rgba(255,235,59,.4)', rectangle:'rgba(33,150,243,.2)',
   text:'rgba(76,175,80,.25)', redaction:'rgba(0,0,0,1)',
+  'stamp-approved':'rgba(76,175,80,.08)', 'stamp-rejected':'rgba(220,53,69,.08)',
 };
 const ANNOT_STROKE = {
   highlight:'rgba(255,193,7,.9)', rectangle:'rgba(33,150,243,.9)',
   text:'rgba(76,175,80,.9)', redaction:'rgba(0,0,0,1)',
+  'stamp-approved':'#22a745', 'stamp-rejected':'#dc3545',
 };
 
 function initAnnotCanvas() {
@@ -2855,13 +2862,13 @@ function initAnnotCanvas() {
 function updateAnnotCursor() {
   const ac = document.getElementById('viewer-annot-canvas');
   if (!ac) return;
-  const map = {select:'default',highlight:'crosshair',rectangle:'crosshair',text:'crosshair',redaction:'cell'};
+  const map = {select:'default',highlight:'crosshair',rectangle:'crosshair',text:'crosshair',redaction:'cell','stamp-approved':'copy','stamp-rejected':'copy'};
   ac.style.cursor = map[viewer.activeTool] || 'default';
 }
 
 function setAnnotTool(tool) {
   viewer.activeTool = tool;
-  ['select','highlight','rectangle','text','redact'].forEach(id => {
+  ['select','highlight','rectangle','text','redact','stamp-approved','stamp-rejected'].forEach(id => {
     const btn = document.getElementById('tool-'+id);
     if (btn) btn.classList.toggle('active', id === tool || (id === 'redact' && tool === 'redaction'));
   });
@@ -2876,8 +2883,27 @@ function normCoords(e) {
 function annotDown(e) {
   if (viewer.activeTool === 'select') return;
   e.preventDefault();
+  if (viewer.activeTool === 'stamp-approved' || viewer.activeTool === 'stamp-rejected') {
+    placeStamp(e); return;
+  }
   viewer.drawing = true;
   viewer.drawStart = normCoords(e);
+}
+
+async function placeStamp(e) {
+  const pt = normCoords(e);
+  const sw = 0.22, sh = 0.075;
+  const ax = Math.max(0, Math.min(pt.x - sw/2, 1 - sw));
+  const ay = Math.max(0, Math.min(pt.y - sh/2, 1 - sh));
+  try {
+    const ann = await apiAnnot('POST', viewer.docId, null,
+      { document_id: viewer.docId, page: viewer.currentPage,
+        type: viewer.activeTool, x: ax, y: ay, width: sw, height: sh, content: '' });
+    viewer.annotations.push(ann);
+    renderAnnotations();
+    renderAnnotList();
+    showToast('Stamp placed', 'success');
+  } catch(err) { showToast('Save failed: '+err.message, 'error'); }
 }
 
 function annotMove(e) {
@@ -2938,6 +2964,31 @@ function renderAnnotationsCtx(ctx, w, h, page) {
 
 function drawAnnotShape(ctx, a, w, h) {
   const px = a.x * w, py = a.y * h, pw = a.width * w, ph = a.height * h;
+  if (a.type === 'stamp-approved' || a.type === 'stamp-rejected') {
+    const label  = a.type === 'stamp-approved' ? 'APPROVED' : 'REJECTED';
+    const color  = ANNOT_STROKE[a.type];
+    const fill   = ANNOT_FILL[a.type];
+    const rw = pw * 0.9, rh = ph * 0.72, r = Math.min(6, rh * 0.2);
+    ctx.save();
+    ctx.translate(px + pw/2, py + ph/2);
+    ctx.rotate(-12 * Math.PI / 180);
+    const rx = -rw/2, ry = -rh/2;
+    ctx.beginPath();
+    ctx.moveTo(rx+r, ry); ctx.lineTo(rx+rw-r, ry);
+    ctx.arcTo(rx+rw, ry, rx+rw, ry+r, r); ctx.lineTo(rx+rw, ry+rh-r);
+    ctx.arcTo(rx+rw, ry+rh, rx+rw-r, ry+rh, r); ctx.lineTo(rx+r, ry+rh);
+    ctx.arcTo(rx, ry+rh, rx, ry+rh-r, r); ctx.lineTo(rx, ry+r);
+    ctx.arcTo(rx, ry, rx+r, ry, r); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(1.5, pw * 0.013); ctx.stroke();
+    ctx.fillStyle = color;
+    const fs = Math.max(9, Math.min(22, rh * 0.58));
+    ctx.font = `bold ${fs}px sans-serif`;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillText(label, 0, 0, rw - 8);
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.fillStyle = ANNOT_FILL[a.type] || 'rgba(100,100,255,.3)';
   ctx.strokeStyle = ANNOT_STROKE[a.type] || 'rgba(100,100,255,.9)';
@@ -2997,7 +3048,7 @@ function renderAnnotList() {
   list.innerHTML = viewer.annotations.map(a => `
     <div class="annot-item" onclick="viewerGotoPage(${a.page})">
       <div class="annot-item-head">
-        <span class="annot-badge annot-badge-${escHtml(a.type)}">${escHtml(a.type)}</span>
+        <span class="annot-badge annot-badge-${escHtml(a.type)}">${({'stamp-approved':'Approved','stamp-rejected':'Rejected'}[a.type])||escHtml(a.type)}</span>
         <span style="font-size:11px;color:var(--text-muted);flex:1">p.${a.page}</span>
         <button class="viewer-btn" style="height:20px;padding:0 6px;font-size:10px" onclick="event.stopPropagation();deleteAnnotation('${escHtml(a.id)}')">✕</button>
       </div>
