@@ -28,10 +28,14 @@ const (
 
 	// "Contract" document class — seeded by ECMS on first startup.
 	contractClassID = "00000000-0000-0000-0000-000000000002"
-
-	// A freely available two-page sample PDF.
-	samplePDFURL = "https://www.africau.edu/images/default/sample.pdf"
 )
+
+// Candidate URLs tried in order; first successful download wins.
+var samplePDFURLs = []string{
+	"https://www.irs.gov/pub/irs-pdf/fw9.pdf",                          // IRS W-9 form
+	"https://www.w3.org/WAI/WCAG21/Techniques/pdf/pdf-sample.pdf",      // W3C sample
+	"https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf", // Mozilla PDF.js test
+}
 
 // Property template IDs assigned to the Contract class (seeded at startup).
 const (
@@ -60,13 +64,14 @@ type uploadParams struct {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 func main() {
-	// 1. Download sample document from the internet.
-	fmt.Printf("Downloading sample PDF from %s …\n", samplePDFURL)
-	pdfBytes, err := fetchURL(samplePDFURL)
-	if err != nil {
-		fatalf("download: %v", err)
+	// 1. Download a sample PDF; fall back to a generated one if all URLs fail.
+	pdfBytes, source := fetchFirstWorking(samplePDFURLs)
+	if pdfBytes == nil {
+		fmt.Println("All remote URLs failed — using generated sample PDF")
+		pdfBytes = generateSamplePDF()
+		source = "generated locally"
 	}
-	fmt.Printf("Downloaded %d bytes\n", len(pdfBytes))
+	fmt.Printf("Sample document ready (%d bytes, source: %s)\n", len(pdfBytes), source)
 
 	// 2. Authenticate and obtain a JWT.
 	fmt.Println("Authenticating …")
@@ -106,9 +111,73 @@ func main() {
 	fmt.Printf("  Size:    %.0f bytes\n", numF(doc["file_size"]))
 }
 
+// ── PDF fetch / generate ──────────────────────────────────────────────────────
+
+// fetchFirstWorking tries each URL in order and returns the first successful
+// response body along with the URL that worked.
+func fetchFirstWorking(urls []string) ([]byte, string) {
+	for _, u := range urls {
+		fmt.Printf("Trying %s … ", u)
+		data, err := fetchURL(u)
+		if err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			continue
+		}
+		fmt.Printf("OK\n")
+		return data, u
+	}
+	return nil, ""
+}
+
+// generateSamplePDF builds a minimal but valid single-page PDF in memory.
+// It uses correct xref byte offsets so any conforming reader can open it.
+func generateSamplePDF() []byte {
+	lines := []string{
+		"BT",
+		"/F1 14 Tf",
+		"72 720 Td",
+		"(Sample Contract Document) Tj",
+		"0 -24 Td (Counterparty: Acme Corporation) Tj",
+		"0 -24 Td (Contract Value: USD 75,000.00) Tj",
+		"0 -24 Td (Effective Date: 2026-01-01) Tj",
+		"0 -24 Td (Expiry Date: 2027-12-31) Tj",
+		"ET",
+	}
+	stream := ""
+	for _, l := range lines {
+		stream += l + "\n"
+	}
+
+	var buf bytes.Buffer
+	offsets := make([]int, 6)
+
+	buf.WriteString("%PDF-1.4\n")
+	offsets[1] = buf.Len()
+	buf.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+	offsets[2] = buf.Len()
+	buf.WriteString("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+	offsets[3] = buf.Len()
+	buf.WriteString("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]\n" +
+		"   /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+	offsets[4] = buf.Len()
+	buf.WriteString(fmt.Sprintf("4 0 obj\n<< /Length %d >>\nstream\n%sendstream\nendobj\n", len(stream), stream))
+	offsets[5] = buf.Len()
+	buf.WriteString("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+
+	xrefPos := buf.Len()
+	buf.WriteString("xref\n0 6\n")
+	buf.WriteString("0000000000 65535 f \n")
+	for i := 1; i <= 5; i++ {
+		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", offsets[i]))
+	}
+	buf.WriteString("trailer\n<< /Size 6 /Root 1 0 R >>\n")
+	buf.WriteString(fmt.Sprintf("startxref\n%d\n%%%%EOF\n", xrefPos))
+
+	return buf.Bytes()
+}
+
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-// fetchURL downloads the content at url and returns it as a byte slice.
 func fetchURL(url string) ([]byte, error) {
 	resp, err := http.Get(url) //nolint:gosec
 	if err != nil {
@@ -116,12 +185,11 @@ func fetchURL(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
 }
 
-// login calls POST /auth/login and returns the JWT token.
 func login(user, pass string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"username": user, "password": pass})
 	resp, err := http.Post(baseURL+"/auth/login", "application/json", bytes.NewReader(body)) //nolint:gosec
@@ -140,13 +208,10 @@ func login(user, pass string) (string, error) {
 	return token, nil
 }
 
-// uploadDocument posts a multipart form to POST /documents and returns the
-// created document JSON.
 func uploadDocument(token string, data []byte, filename string, p uploadParams) (map[string]any, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
-	// Attach the file.
 	fw, err := w.CreateFormFile("file", filename)
 	if err != nil {
 		return nil, fmt.Errorf("create form file: %w", err)
@@ -155,7 +220,6 @@ func uploadDocument(token string, data []byte, filename string, p uploadParams) 
 		return nil, err
 	}
 
-	// Attach metadata fields.
 	_ = w.WriteField("name", p.Name)
 	_ = w.WriteField("description", p.Description)
 	_ = w.WriteField("class_id", p.ClassID)
@@ -169,7 +233,6 @@ func uploadDocument(token string, data []byte, filename string, p uploadParams) 
 		propsJSON, _ := json.Marshal(p.Properties)
 		_ = w.WriteField("properties", string(propsJSON))
 	}
-
 	w.Close()
 
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/documents", &buf)
