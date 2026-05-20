@@ -11,6 +11,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,10 +20,18 @@ import (
 	"os"
 )
 
+// httpClient skips TLS verification for the local self-signed certificate.
+var httpClient = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+	},
+}
+
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const (
-	baseURL  = "http://localhost:3001"
+	// Nginx reverse-proxies /api → backend:3001 (HTTPS, self-signed cert).
+	baseURL  = "https://localhost:8443/api"
 	username = "admin"
 	password = "admin"
 
@@ -179,7 +188,7 @@ func generateSamplePDF() []byte {
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 func fetchURL(url string) ([]byte, error) {
-	resp, err := http.Get(url) //nolint:gosec
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +201,7 @@ func fetchURL(url string) ([]byte, error) {
 
 func login(user, pass string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"username": user, "password": pass})
-	resp, err := http.Post(baseURL+"/auth/login", "application/json", bytes.NewReader(body)) //nolint:gosec
+	resp, err := httpClient.Post(baseURL+"/auth/login", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -242,7 +251,7 @@ func uploadDocument(token string, data []byte, filename string, p uploadParams) 
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
