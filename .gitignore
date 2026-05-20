@@ -9,6 +9,8 @@ backend/.env
 backend/ecms-server
 backend/ecms
 backend/*.exe
+samples/**/*.exe
+samples/**/go-api-client/ecms-api-client
 
 # IDE / tool config
 .claude/
