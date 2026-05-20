@@ -325,15 +325,15 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
       <div class="logo-icon">E</div>
       <div><div class="logo-text">ECMS</div><div class="logo-sub">Enterprise CMS</div></div>
     </div>
-    <div class="folder-section" id="folder-section">
-      <div class="folder-section-head">
-        File Store
-        <button id="btn-new-folder" class="btn btn-sm" onclick="openNewFolderModal(null)" style="display:none;padding:1px 7px;font-size:11px" title="New folder">+</button>
-      </div>
-      <div id="folder-tree"></div>
-    </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Workspace</div>
+      <div class="folder-section" id="folder-section">
+        <div class="folder-section-head">
+          File Store
+          <button id="btn-new-folder" class="btn btn-sm" onclick="openNewFolderModal(null)" style="display:none;padding:1px 7px;font-size:11px" title="New folder">+</button>
+        </div>
+        <div id="folder-tree"></div>
+      </div>
       <div class="nav-item" onclick="showView('search')" id="nav-search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         Search
