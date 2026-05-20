@@ -1392,7 +1392,8 @@ async function renderTemplatesView() {
   const c=document.getElementById('templates-container');
   c.innerHTML='<div class="page-loading"><div class="spinner"></div></div>';
   await loadTemplates();
-  c.innerHTML=templates.length?`<div>${templates.map(t=>`<div class="template-row"><span style="font-weight:500;color:var(--text-primary)">${escHtml(t.display_name)}</span><span style="color:var(--text-muted);font-size:12px;font-family:var(--mono)">${t.name}</span><span class="type-pill" style="border-color:${TYPE_COLORS[t.data_type]||'#6b7280'}33;color:${TYPE_COLORS[t.data_type]||'#6b7280'}">${t.data_type}</span>${t.is_required?'<span class="badge badge-red" style="font-size:10px">required</span>':''}<span style="color:var(--text-muted);font-size:12px;margin-left:auto">${escHtml(t.description||'')}</span></div>`).join('')}</div>`:'<div class="empty"><div class="empty-icon">🏷</div><h3>No templates</h3></div>';
+  const canDel=hasPerm('taxonomy:delete');
+  c.innerHTML=templates.length?`<div>${templates.map(t=>`<div class="template-row"><span style="font-weight:500;color:var(--text-primary)">${escHtml(t.display_name)}</span><span style="color:var(--text-muted);font-size:12px;font-family:var(--mono)">${t.name}</span><span class="type-pill" style="border-color:${TYPE_COLORS[t.data_type]||'#6b7280'}33;color:${TYPE_COLORS[t.data_type]||'#6b7280'}">${t.data_type}</span>${t.is_required?'<span class="badge badge-red" style="font-size:10px">required</span>':''}<span style="color:var(--text-muted);font-size:12px;margin-left:auto">${escHtml(t.description||'')}</span>${canDel?`<button class="btn btn-sm btn-danger" onclick="deleteTemplate('${t.id}',${JSON.stringify(t.display_name)})" style="margin-left:8px;padding:2px 8px;font-size:11px">✕</button>`:''}</div>`).join('')}</div>`:'<div class="empty"><div class="empty-icon">🏷</div><h3>No templates</h3></div>';
 }
 
 async function openClassDetail(id) {
@@ -1450,6 +1451,13 @@ async function saveTemplate(){
   const r=await apiFetch('/property-templates',{method:'POST',body:JSON.stringify(body)});
   if(!r.ok){toast('Failed','error');return;}
   toast('Template created','success');closeModal('template-modal');await renderTemplatesView();
+}
+async function deleteTemplate(id, name) {
+  if (!confirm(`Delete property template "${name}"?\n\nThis will remove it from all class assignments and erase any stored values on existing documents.`)) return;
+  const r = await apiFetch('/property-templates/'+id, {method:'DELETE'});
+  if (!r.ok) { toast('Failed to delete template', 'error'); return; }
+  toast('Template deleted', 'success');
+  await renderTemplatesView();
 }
 function openCreateTemplateModal(){['tmpl-name','tmpl-display','tmpl-desc'].forEach(id=>document.getElementById(id).value='');document.getElementById('tmpl-type').value='string';document.getElementById('tmpl-required').value='false';document.getElementById('template-modal').classList.add('open');}
 

@@ -1192,6 +1192,16 @@ func (a *App) handleDeleteClass(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"success": true})
 }
 
+func (a *App) handleDeletePropertyTemplate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ct, err := a.db.Exec(context.Background(), `DELETE FROM property_templates WHERE id=$1`, id)
+	if err != nil || ct.RowsAffected() == 0 {
+		writeError(w, 404, "template not found")
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"success": true})
+}
+
 func (a *App) handleListPropertyTemplates(w http.ResponseWriter, r *http.Request) {
 	rows, _ := a.db.Query(context.Background(),
 		`SELECT id,name,display_name,data_type,is_required,is_multivalued,default_value,choices,description FROM property_templates ORDER BY display_name`)
@@ -2155,6 +2165,7 @@ func (a *App) buildMux() http.Handler {
 	mux.HandleFunc("DELETE /classes/{id}/properties/{propId}", a.requireAuth(PermTaxUpdate, a.handleRemoveProperty))
 	mux.HandleFunc("GET /property-templates",                  a.requireAuth(PermTaxRead,   a.handleListPropertyTemplates))
 	mux.HandleFunc("POST /property-templates",                 a.requireAuth(PermTaxCreate, a.handleCreatePropertyTemplate))
+	mux.HandleFunc("DELETE /property-templates/{id}",          a.requireAuth(PermTaxDelete, a.handleDeletePropertyTemplate))
 
 	// Documents
 	mux.HandleFunc("GET /documents",                 a.requireAuth(PermDocRead,     a.handleListDocuments))
