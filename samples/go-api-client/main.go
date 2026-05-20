@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -77,7 +78,10 @@ type uploadParams struct {
 
 func main() {
 	// 1. Download a sample PDF; fall back to a generated one if all URLs fail.
-	pdfBytes, source := fetchFirstWorking(samplePDFURLs)
+	urls := make([]string, len(samplePDFURLs))
+	copy(urls, samplePDFURLs)
+	rand.Shuffle(len(urls), func(i, j int) { urls[i], urls[j] = urls[j], urls[i] })
+	pdfBytes, source := fetchFirstWorking(urls)
 	if pdfBytes == nil {
 		fmt.Println("All remote URLs failed — using generated sample PDF")
 		pdfBytes = generateSamplePDF()
