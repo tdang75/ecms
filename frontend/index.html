@@ -96,6 +96,12 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 .adv-add-cond{margin:10px 12px;font-size:12px}
 .adv-search-actions{display:flex;gap:8px;margin-top:20px}
 .adv-results-header{padding:0 0 10px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border);margin-bottom:12px}
+/* ── Class Change Modal ── */
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:12px}
+.cc-old-panel{background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px}
+.cc-new-panel{border:1px solid var(--border-accent);border-radius:var(--radius-lg);padding:14px;background:rgba(99,102,241,.03)}
+.cc-panel-title{font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px}
+.cc-copied-badge{font-size:10px;color:var(--success);margin-left:5px;font-weight:500}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:31px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap}
 .btn:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border-hover)}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -560,6 +566,41 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
       <div class="form-group"><label class="form-label">Change Comment</label><textarea class="form-textarea" id="version-comment" placeholder="What changed…"></textarea></div>
     </div>
     <div class="modal-foot"><button class="btn" onclick="closeModal('version-modal')">Cancel</button><button class="btn btn-primary" onclick="uploadVersion()">Upload Version</button></div>
+  </div>
+</div>
+
+<!-- Change Document Class Modal -->
+<div class="modal-overlay" id="class-change-modal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h2>Change Document Class</h2>
+      <button class="btn btn-sm" onclick="closeModal('class-change-modal')" style="margin-left:auto">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">New Document Class</label>
+        <select class="form-select" id="cc-class" onchange="onCCClassChange()">
+          <option value="">— Select a new class —</option>
+        </select>
+      </div>
+      <div id="cc-content" style="display:none">
+        <div class="cc-grid">
+          <div class="cc-old-panel">
+            <div class="cc-panel-title" id="cc-old-title">Current Properties</div>
+            <div id="cc-old-props"></div>
+          </div>
+          <div class="cc-new-panel">
+            <div class="cc-panel-title" id="cc-new-title">New Class Properties</div>
+            <div id="cc-new-props"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('class-change-modal')">Cancel</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-primary" id="cc-save-btn" onclick="saveClassChange()" style="display:none">Save Class Change</button>
+    </div>
   </div>
 </div>
 
@@ -1286,9 +1327,13 @@ async function openDetail(id) {
   // Build footer buttons based on permissions
   const foot=document.getElementById('detail-foot');
   foot.innerHTML='';
-  if(hasPerm('documents:delete')){const b=document.createElement('button');b.className='btn btn-danger';b.textContent='Delete';b.onclick=deleteDocument;foot.appendChild(b);}
+  const _isOwner = currentUser && d.created_by === currentUser.username;
+  const _canUpdate = hasPerm('documents:update') || _isOwner;
+  const _canDelete = hasPerm('documents:delete') || _isOwner;
+  if(_canDelete){const b=document.createElement('button');b.className='btn btn-danger';b.textContent='Delete';b.onclick=deleteDocument;foot.appendChild(b);}
   if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn';b.textContent='👁 View';b.onclick=()=>viewDocument(currentDoc.id,currentDoc.name,currentDoc.mime_type||'');foot.appendChild(b);}
-  if(hasPerm('documents:update')){const b=document.createElement('button');b.className='btn';b.textContent='↺ New Version';b.onclick=newVersionModal;foot.appendChild(b);}
+  if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='↺ New Version';b.onclick=newVersionModal;foot.appendChild(b);}
+  if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='🏷 Change Class';b.onclick=openClassChangeModal;foot.appendChild(b);}
   if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn btn-primary';b.textContent='↓ Download';b.onclick=downloadDocument;foot.appendChild(b);}
   if(!foot.children.length){const s=document.createElement('span');s.style.cssText='font-size:12px;color:var(--text-muted);margin:auto';s.textContent='Read-only access';foot.appendChild(s);}
 }
@@ -3058,6 +3103,122 @@ function showTab(tabId,btnId){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
   document.getElementById(btnId).classList.add('active');
+}
+
+// ── Change Document Class ───────────────────────────────────────────────────────
+function openClassChangeModal() {
+  if (!currentDoc) return;
+  const sel = document.getElementById('cc-class');
+  sel.innerHTML = '<option value="">— Select a new class —</option>' +
+    classes.map(c => {
+      const cur = c.id === currentDoc.class_id;
+      return `<option value="${c.id}"${cur?' disabled':''}>${c.icon||''} ${escHtml(c.name)}${cur?' (current)':''}</option>`;
+    }).join('');
+  document.getElementById('cc-content').style.display = 'none';
+  document.getElementById('cc-save-btn').style.display = 'none';
+  document.getElementById('cc-old-props').innerHTML = '';
+  document.getElementById('cc-new-props').innerHTML = '';
+  document.getElementById('class-change-modal').classList.add('open');
+}
+
+async function onCCClassChange() {
+  const newClassID = document.getElementById('cc-class').value;
+  const content = document.getElementById('cc-content');
+  const saveBtn = document.getElementById('cc-save-btn');
+  if (!newClassID) { content.style.display = 'none'; saveBtn.style.display = 'none'; return; }
+
+  try {
+    const r = await apiFetch('/classes/' + newClassID);
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    const newProps = data.properties || [];
+    const cls = data.class || {};
+
+    // Build map of current property values keyed by template ID
+    const oldProps = currentDoc.properties || [];
+    const oldValMap = {};
+    oldProps.forEach(p => { if (p.value !== null && p.value !== undefined) oldValMap[p.property_template_id] = p.value; });
+
+    // Left panel: current class read-only reference
+    document.getElementById('cc-old-title').textContent = (currentDoc.class_icon||'') + (currentDoc.class_name ? ' ' + currentDoc.class_name : 'Unclassified') + ' — current';
+    document.getElementById('cc-old-props').innerHTML = oldProps.length
+      ? oldProps.map(p => `<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)}</div><div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div></div>`).join('')
+      : '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No properties in current class.</div>';
+
+    // Right panel: new class editable fields, auto-filled where templates match
+    document.getElementById('cc-new-title').textContent = (cls.icon||'') + (cls.name ? ' ' + cls.name : '') + ' — new';
+    if (!newProps.length) {
+      document.getElementById('cc-new-props').innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">This class has no property fields.</div>';
+    } else {
+      document.getElementById('cc-new-props').innerHTML = newProps.map(p => {
+        const pt = p.template || {};
+        const tid = p.property_template_id;
+        const dt = pt.data_type || 'string';
+        const old = oldValMap[tid];
+        const copied = old !== undefined;
+        const hl = copied ? 'border-color:rgba(16,185,129,.5);background:rgba(16,185,129,.04)' : '';
+        const badge = copied ? '<span class="cc-copied-badge">↩ copied</span>' : '';
+
+        let inputEl;
+        if (dt === 'boolean') {
+          inputEl = `<select class="form-select" id="cc-p-${tid}" data-propid="${tid}" data-type="${dt}" style="${hl}">
+            <option value="">—</option>
+            <option value="true"${old===true||old==='true'?' selected':''}>True</option>
+            <option value="false"${old===false||old==='false'?' selected':''}>False</option>
+          </select>`;
+        } else {
+          const itype = dt==='date'?'date':dt==='datetime'?'datetime-local':dt==='integer'||dt==='decimal'?'number':'text';
+          const step = dt==='decimal'?' step="any"':'';
+          const val = copied ? escHtml(String(old)) : '';
+          inputEl = `<input type="${itype}"${step} class="form-input" id="cc-p-${tid}" data-propid="${tid}" data-type="${dt}" value="${val}" style="${hl}" placeholder="${escHtml(pt.display_name||'')}…">`;
+        }
+        return `<div class="form-group"><label class="form-label">${escHtml(pt.display_name||'')} <span style="font-size:10px;color:var(--text-muted)">[${dt}]</span>${badge}</label>${inputEl}</div>`;
+      }).join('');
+    }
+
+    content.style.display = '';
+    saveBtn.style.display = '';
+  } catch(e) {
+    toast('Failed to load class properties', 'error');
+  }
+}
+
+async function saveClassChange() {
+  const newClassID = document.getElementById('cc-class').value;
+  if (!newClassID || !currentDoc) return;
+  const btn = document.getElementById('cc-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    // Update class_id
+    let r = await apiFetch('/documents/' + currentDoc.id, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({class_id: newClassID}),
+    });
+    if (!r.ok) throw new Error('Failed to update class');
+
+    // Replace ALL property values with only the new class fields
+    const inputs = [];
+    document.querySelectorAll('#cc-new-props [data-propid]').forEach(el => {
+      const val = el.value.trim();
+      if (val) inputs.push({property_template_id: el.dataset.propid, value: val});
+    });
+    r = await apiFetch('/documents/' + currentDoc.id + '/properties?replace_all=true', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(inputs),
+    });
+    if (!r.ok) throw new Error('Failed to save properties');
+
+    toast('Class changed successfully ✓', 'success');
+    closeModal('class-change-modal');
+    await openDetail(currentDoc.id);
+    await loadAll();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Class Change';
+  }
 }
 
 // ── Advanced Search ─────────────────────────────────────────────────────────────

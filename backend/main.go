@@ -1622,8 +1622,12 @@ func (a *App) handleSetProperties(w http.ResponseWriter, r *http.Request) {
 	}
 	var inputs []PropInput
 	json.NewDecoder(r.Body).Decode(&inputs)
-	for _, inp := range inputs {
-		a.db.Exec(context.Background(), `DELETE FROM document_property_values WHERE document_id=$1 AND property_template_id=$2`, id, inp.PropertyTemplateID)
+	if r.URL.Query().Get("replace_all") == "true" {
+		a.db.Exec(context.Background(), `DELETE FROM document_property_values WHERE document_id=$1`, id)
+	} else {
+		for _, inp := range inputs {
+			a.db.Exec(context.Background(), `DELETE FROM document_property_values WHERE document_id=$1 AND property_template_id=$2`, id, inp.PropertyTemplateID)
+		}
 	}
 	a.savePropertyValues(context.Background(), id, inputs)
 	a.audit(id, "update_properties", actor, map[string]int{"count": len(inputs)})
