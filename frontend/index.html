@@ -286,6 +286,7 @@ tbody tr:hover .row-actions{opacity:1}
 .annot-badge-redaction{background:rgba(0,0,0,.5);color:#999;border:1px solid #444}
 .annot-badge-stamp-approved{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.6)}
 .annot-badge-stamp-rejected{background:rgba(220,53,69,.15);color:#e05567;border:1px solid rgba(220,53,69,.6)}
+.annot-badge-arrow{background:rgba(255,152,0,.2);color:#ff9800;border:1px solid rgba(255,152,0,.6)}
 #doc-ctx-menu,#user-ctx-menu,#folder-ctx-menu{display:none;position:fixed;z-index:400;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:4px 0;min-width:190px;font-size:13px;user-select:none}
 #doc-ctx-menu.open,#user-ctx-menu.open,#folder-ctx-menu.open{display:block}
 .ctx-item{padding:7px 14px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;gap:9px;transition:background .1s;white-space:nowrap}
@@ -716,6 +717,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
     <button class="viewer-btn tool-btn active" id="tool-select"    onclick="setAnnotTool('select')"    title="Select / Pan">↖</button>
     <button class="viewer-btn tool-btn"        id="tool-highlight" onclick="setAnnotTool('highlight')" title="Highlight area">⬛ HL</button>
     <button class="viewer-btn tool-btn"        id="tool-rectangle" onclick="setAnnotTool('rectangle')" title="Rectangle annotation">□</button>
+    <button class="viewer-btn tool-btn"        id="tool-arrow"     onclick="setAnnotTool('arrow')"     title="Arrow annotation">↗ Arrow</button>
     <button class="viewer-btn tool-btn"        id="tool-text"      onclick="setAnnotTool('text')"      title="Text note">T</button>
     <button class="viewer-btn tool-btn"        id="tool-redact"    onclick="setAnnotTool('redaction')" title="Redact (black out)">■ Redact</button>
     <div class="viewer-sep"></div>
@@ -2839,11 +2841,13 @@ const ANNOT_FILL = {
   highlight:'rgba(255,235,59,.4)', rectangle:'rgba(33,150,243,.2)',
   text:'rgba(76,175,80,.25)', redaction:'rgba(0,0,0,1)',
   'stamp-approved':'rgba(76,175,80,.08)', 'stamp-rejected':'rgba(220,53,69,.08)',
+  arrow:'rgba(255,152,0,0)',
 };
 const ANNOT_STROKE = {
   highlight:'rgba(255,193,7,.9)', rectangle:'rgba(33,150,243,.9)',
   text:'rgba(76,175,80,.9)', redaction:'rgba(0,0,0,1)',
   'stamp-approved':'#22a745', 'stamp-rejected':'#dc3545',
+  arrow:'rgba(255,152,0,1)',
 };
 
 function initAnnotCanvas() {
@@ -2862,13 +2866,13 @@ function initAnnotCanvas() {
 function updateAnnotCursor() {
   const ac = document.getElementById('viewer-annot-canvas');
   if (!ac) return;
-  const map = {select:'default',highlight:'crosshair',rectangle:'crosshair',text:'crosshair',redaction:'cell','stamp-approved':'copy','stamp-rejected':'copy'};
+  const map = {select:'default',highlight:'crosshair',rectangle:'crosshair',arrow:'crosshair',text:'crosshair',redaction:'cell','stamp-approved':'copy','stamp-rejected':'copy'};
   ac.style.cursor = map[viewer.activeTool] || 'default';
 }
 
 function setAnnotTool(tool) {
   viewer.activeTool = tool;
-  ['select','highlight','rectangle','text','redact','stamp-approved','stamp-rejected'].forEach(id => {
+  ['select','highlight','rectangle','arrow','text','redact','stamp-approved','stamp-rejected'].forEach(id => {
     const btn = document.getElementById('tool-'+id);
     if (btn) btn.classList.toggle('active', id === tool || (id === 'redact' && tool === 'redaction'));
   });
@@ -2914,11 +2918,13 @@ function annotMove(e) {
   const ctx = ac.getContext('2d');
   const cur = normCoords(e);
   renderAnnotationsCtx(ctx, ac.width, ac.height, viewer.currentPage);
-  drawAnnotShape(ctx, {
-    type: viewer.activeTool,
-    x: Math.min(viewer.drawStart.x, cur.x), y: Math.min(viewer.drawStart.y, cur.y),
-    width: Math.abs(cur.x - viewer.drawStart.x), height: Math.abs(cur.y - viewer.drawStart.y),
-  }, ac.width, ac.height);
+  const shape = viewer.activeTool === 'arrow'
+    ? { type: 'arrow', x: viewer.drawStart.x, y: viewer.drawStart.y,
+        width: cur.x - viewer.drawStart.x, height: cur.y - viewer.drawStart.y }
+    : { type: viewer.activeTool,
+        x: Math.min(viewer.drawStart.x, cur.x), y: Math.min(viewer.drawStart.y, cur.y),
+        width: Math.abs(cur.x - viewer.drawStart.x), height: Math.abs(cur.y - viewer.drawStart.y) };
+  drawAnnotShape(ctx, shape, ac.width, ac.height);
 }
 
 async function annotUp(e) {
@@ -2926,10 +2932,19 @@ async function annotUp(e) {
   viewer.drawing = false;
   e.preventDefault();
   const cur = normCoords(e);
-  const ax = Math.min(viewer.drawStart.x, cur.x), ay = Math.min(viewer.drawStart.y, cur.y);
-  const aw = Math.abs(cur.x - viewer.drawStart.x), ah = Math.abs(cur.y - viewer.drawStart.y);
+  let ax, ay, aw, ah;
+  if (viewer.activeTool === 'arrow') {
+    ax = viewer.drawStart.x; ay = viewer.drawStart.y;
+    aw = cur.x - viewer.drawStart.x; ah = cur.y - viewer.drawStart.y;
+  } else {
+    ax = Math.min(viewer.drawStart.x, cur.x); ay = Math.min(viewer.drawStart.y, cur.y);
+    aw = Math.abs(cur.x - viewer.drawStart.x); ah = Math.abs(cur.y - viewer.drawStart.y);
+  }
   viewer.drawStart = null;
-  if (aw < 0.005 || ah < 0.005) { renderAnnotations(); return; }
+  const tooSmall = viewer.activeTool === 'arrow'
+    ? Math.sqrt(aw*aw + ah*ah) < 0.02
+    : (aw < 0.005 || ah < 0.005);
+  if (tooSmall) { renderAnnotations(); return; }
 
   let content = '';
   if (viewer.activeTool === 'text') {
@@ -2964,6 +2979,29 @@ function renderAnnotationsCtx(ctx, w, h, page) {
 
 function drawAnnotShape(ctx, a, w, h) {
   const px = a.x * w, py = a.y * h, pw = a.width * w, ph = a.height * h;
+  if (a.type === 'arrow') {
+    const x1 = px, y1 = py, x2 = px + pw, y2 = py + ph;
+    const len = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
+    if (len < 1) return;
+    const angle = Math.atan2(y2-y1, x2-x1);
+    const headLen = Math.min(18, len * 0.35);
+    const hw = Math.PI / 7;
+    const color = ANNOT_STROKE.arrow;
+    ctx.save();
+    ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - headLen * 0.65 * Math.cos(angle), y2 - headLen * 0.65 * Math.sin(angle));
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle - hw), y2 - headLen * Math.sin(angle - hw));
+    ctx.lineTo(x2 - headLen * Math.cos(angle + hw), y2 - headLen * Math.sin(angle + hw));
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    return;
+  }
   if (a.type === 'stamp-approved' || a.type === 'stamp-rejected') {
     const label  = a.type === 'stamp-approved' ? 'APPROVED' : 'REJECTED';
     const color  = ANNOT_STROKE[a.type];

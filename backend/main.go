@@ -611,7 +611,7 @@ func (a *App) initDB() error {
 		id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
 		page        INTEGER NOT NULL DEFAULT 1,
-		annotation_type TEXT NOT NULL CHECK (annotation_type IN ('highlight','rectangle','text','redaction','stamp-approved','stamp-rejected')),
+		annotation_type TEXT NOT NULL CHECK (annotation_type IN ('highlight','rectangle','text','redaction','stamp-approved','stamp-rejected','arrow')),
 		x           DOUBLE PRECISION NOT NULL DEFAULT 0,
 		y           DOUBLE PRECISION NOT NULL DEFAULT 0,
 		width       DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -659,7 +659,7 @@ func (a *App) initDB() error {
 		DO $$ BEGIN
 			ALTER TABLE document_annotations DROP CONSTRAINT IF EXISTS document_annotations_annotation_type_check;
 			ALTER TABLE document_annotations ADD CONSTRAINT document_annotations_annotation_type_check
-				CHECK (annotation_type IN ('highlight','rectangle','text','redaction','stamp-approved','stamp-rejected'));
+				CHECK (annotation_type IN ('highlight','rectangle','text','redaction','stamp-approved','stamp-rejected','arrow'));
 		EXCEPTION WHEN others THEN NULL;
 		END $$;
 	`)
@@ -1806,7 +1806,7 @@ func (a *App) handleCreateAnnotation(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&inp); err != nil {
 		writeError(w, 400, "invalid request body"); return
 	}
-	valid := map[string]bool{"highlight": true, "rectangle": true, "text": true, "redaction": true, "stamp-approved": true, "stamp-rejected": true}
+	valid := map[string]bool{"highlight": true, "rectangle": true, "text": true, "redaction": true, "stamp-approved": true, "stamp-rejected": true, "arrow": true}
 	if !valid[inp.Type] {
 		writeError(w, 400, "invalid annotation type"); return
 	}

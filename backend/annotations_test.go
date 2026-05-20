@@ -67,7 +67,7 @@ func TestAnnotations_AllTypes(t *testing.T) {
 	tok := adminToken(t)
 	docID := uploadDoc(t, tok, "ann-types-"+uid()+".pdf", "%PDF-1.4")
 
-	for _, atype := range []string{"highlight", "rectangle", "text", "redaction", "stamp-approved", "stamp-rejected"} {
+	for _, atype := range []string{"highlight", "rectangle", "text", "redaction", "stamp-approved", "stamp-rejected", "arrow"} {
 		resp := apiDo(t, "POST", "/documents/"+docID+"/annotations", map[string]any{
 			"page": 1, "type": atype,
 			"x": 0.0, "y": 0.0, "width": 0.1, "height": 0.1,
