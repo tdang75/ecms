@@ -1161,6 +1161,7 @@ function renderDocs() {
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
+      <td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>
       <td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>
       <td><span class="badge badge-gray">v${d.version}</span></td>
       <td>${fmtSize(d.file_size)}</td>
@@ -1172,7 +1173,7 @@ function renderDocs() {
       </div></td>
     </tr>`;
   }).join('');
-  c.innerHTML=`<div class="table-wrap"><table><thead><tr><th style="width:32%">Document</th><th>Class</th><th>Tags</th><th>Ver</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  c.innerHTML=`<div class="table-wrap"><table><thead><tr><th style="width:32%">Document</th><th>Class</th><th>User</th><th>Tags</th><th>Ver</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ── Row click: single → viewer, double → detail ──────────────────────────────
@@ -3523,12 +3524,13 @@ function renderAdvResults(docList) {
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
+      <td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>
       <td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>
       <td>${fmtSize(d.file_size)}</td>
       <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
     </tr>`;
   }).join('');
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th style="width:36%">Document</th><th>Class</th><th>Tags</th><th>Size</th><th>Uploaded</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th style="width:36%">Document</th><th>Class</th><th>User</th><th>Tags</th><th>Size</th><th>Uploaded</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   resultsDiv.style.display = '';
 }
 
