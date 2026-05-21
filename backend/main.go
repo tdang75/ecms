@@ -136,13 +136,14 @@ type Claims struct {
 }
 
 type DocumentClass struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	ParentID    *string   `json:"parent_id"`
-	Icon        string    `json:"icon"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	ParentID    *string            `json:"parent_id"`
+	Icon        string             `json:"icon"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	Properties  []PropertyTemplate `json:"properties,omitempty"`
 }
 
 type PropertyTemplate struct {
@@ -1125,15 +1126,59 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 // ── Taxonomy Handlers ──────────────────────────────────────────────────────────
 
 func (a *App) handleListClasses(w http.ResponseWriter, r *http.Request) {
-	rows, _ := a.db.Query(context.Background(), `SELECT id,name,description,parent_id,icon,created_at,updated_at FROM document_classes ORDER BY name`)
-	defer rows.Close()
+	rows, _ := a.db.Query(context.Background(), `
+		SELECT dc.id, dc.name, dc.description, dc.parent_id, dc.icon, dc.created_at, dc.updated_at,
+		       COALESCE(json_agg(json_build_object(
+		           'id', pt.id, 'name', pt.name, 'display_name', pt.display_name, 'data_type', pt.data_type
+		       ) ORDER BY cpa.sort_order) FILTER (WHERE pt.id IS NOT NULL), '[]'::json) AS props
+		FROM document_classes dc
+		LEFT JOIN class_property_assignments cpa ON cpa.class_id = dc.id
+		LEFT JOIN property_templates pt ON cpa.property_template_id = pt.id
+		GROUP BY dc.id, dc.name, dc.description, dc.parent_id, dc.icon, dc.created_at, dc.updated_at
+		ORDER BY dc.name`)
+	if rows != nil { defer rows.Close() }
 	classes := []DocumentClass{}
 	for rows.Next() {
 		var c DocumentClass
-		rows.Scan(&c.ID, &c.Name, &c.Description, &c.ParentID, &c.Icon, &c.CreatedAt, &c.UpdatedAt)
+		var propsJSON []byte
+		rows.Scan(&c.ID, &c.Name, &c.Description, &c.ParentID, &c.Icon, &c.CreatedAt, &c.UpdatedAt, &propsJSON)
+		json.Unmarshal(propsJSON, &c.Properties)
 		classes = append(classes, c)
 	}
 	writeJSON(w, 200, classes)
+}
+
+func (a *App) loadPropertiesBatch(ctx context.Context, docIDs []string) map[string][]PropertyValue {
+	result := map[string][]PropertyValue{}
+	if len(docIDs) == 0 { return result }
+	rows, err := a.db.Query(ctx, `
+		SELECT pv.document_id, pt.id, pt.name, pt.display_name, pt.data_type,
+		       pv.value_string, pv.value_integer, pv.value_decimal,
+		       pv.value_boolean, pv.value_date, pv.value_datetime
+		FROM document_property_values pv
+		JOIN property_templates pt ON pv.property_template_id = pt.id
+		WHERE pv.document_id = ANY($1)
+		ORDER BY pv.document_id, pt.name`, docIDs)
+	if err != nil { return result }
+	defer rows.Close()
+	for rows.Next() {
+		var docID string
+		var pv PropertyValue
+		var vs *string; var vi *int64; var vd *float64; var vb *bool; var vdate, vdt *string
+		rows.Scan(&docID, &pv.PropertyTemplateID, &pv.Name, &pv.DisplayName, &pv.DataType,
+			&vs, &vi, &vd, &vb, &vdate, &vdt)
+		switch pv.DataType {
+		case "string":   if vs != nil { pv.Value = *vs }
+		case "integer":  if vi != nil { pv.Value = *vi }
+		case "decimal":  if vd != nil { pv.Value = *vd }
+		case "boolean":  if vb != nil { pv.Value = *vb }
+		case "date":     if vdate != nil { pv.Value = *vdate }
+		case "datetime": if vdt != nil { pv.Value = *vdt }
+		case "user":     if vs != nil { pv.Value = *vs }
+		}
+		result[docID] = append(result[docID], pv)
+	}
+	return result
 }
 
 func (a *App) handleGetClass(w http.ResponseWriter, r *http.Request) {
@@ -1419,6 +1464,12 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	docs := []Document{}
 	for rows.Next() {
 		if d, err := scanDoc(rows); err == nil { docs = append(docs, d) }
+	}
+	if q.Get("with_props") == "true" {
+		ids := make([]string, len(docs))
+		for i, d := range docs { ids[i] = d.ID }
+		pm := a.loadPropertiesBatch(context.Background(), ids)
+		for i := range docs { docs[i].Properties = pm[docs[i].ID] }
 	}
 	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
 }

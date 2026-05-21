@@ -130,6 +130,9 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 .filter-select{height:31px;padding:0 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);font-size:13px;outline:none;cursor:pointer}
 .filter-select:focus{border-color:var(--border-accent);color:var(--text-primary)}
 .filter-select option{background:var(--bg-panel)}
+#prop-col-select{min-width:160px;max-width:260px;height:64px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);font-size:12px;outline:none;cursor:pointer}
+#prop-col-select option{background:var(--bg-panel);padding:1px 2px}
+#prop-col-select:focus{border-color:var(--border-accent)}
 .ml-auto{margin-left:auto}
 
 /* ── Table ── */
@@ -396,6 +399,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         <div class="toolbar">
           <select class="filter-select" id="filter-class" onchange="applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
+          <select multiple id="prop-col-select" title="Select property columns to display" onchange="renderDocs()" style="display:none"></select>
 
           <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal(activeFolderID)" style="display:none">+ Upload</button>
           <div class="ml-auto"></div>
@@ -1185,6 +1189,7 @@ async function loadAll() {
     if (cls) params.class_id = cls;
     if (status) params.status = status;
     if (activeFolderID) params.folder_id = activeFolderID;
+    if (selectedPropCols().length > 0) params.with_props = 'true';
 
     const [dr, sr] = await Promise.all([
       apiFetch('/documents?'+new URLSearchParams(params)).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}),
@@ -1251,6 +1256,7 @@ function renderDocs() {
   const c = document.getElementById('docs-container');
   if (!docs.length) { c.innerHTML=`<div class="table-wrap"><div class="empty"><div class="empty-icon">📁</div><h3>No documents</h3><p>Upload your first document to get started.</p>${hasPerm('documents:create')?'<button class="btn btn-primary" onclick="openUploadModal()">Upload Document</button>':''}</div></div>`; return; }
   const canDl = hasPerm('documents:download');
+  const propCols = selectedPropCols();
   const rows = sortedDocs().map(d=>{
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
@@ -1263,6 +1269,7 @@ function renderDocs() {
       <td><span class="badge badge-gray">v${d.version}</span></td>
       <td>${fmtSize(d.file_size)}</td>
       <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
+      ${propCols.map(p=>`<td style="font-size:12px;white-space:nowrap;color:var(--text-secondary)">${propValDisplay(d,p.id)}</td>`).join('')}
       <td><div class="row-actions" onclick="event.stopPropagation()">
         ${canDl?`<button class="btn btn-sm" onclick="viewDocument('${d.id}','${escHtml(d.name)}','${escHtml(d.mime_type||'')}',${d.version||1})" title="View">👁</button>`:''}
         ${canDl?`<button class="btn btn-sm" onclick="downloadDocById('${d.id}')">↓</button>`:''}
@@ -1270,6 +1277,7 @@ function renderDocs() {
       </div></td>
     </tr>`;
   }).join('');
+  const propCols = selectedPropCols();
   c.innerHTML=`<div class="table-wrap"><table><thead><tr>
     ${thSort('name','Document','width:32%')}
     ${thSort('class','Class')}
@@ -1278,6 +1286,7 @@ function renderDocs() {
     ${thSort('version','Ver')}
     ${thSort('size','Size')}
     ${thSort('uploaded','Uploaded')}
+    ${propCols.map(p=>`<th style="font-size:12px;white-space:nowrap">${escHtml(p.label)}</th>`).join('')}
     <th></th>
   </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -3762,9 +3771,33 @@ function renderAdvResults(docList) {
   resultsDiv.style.display = '';
 }
 
-function filterClass(id){document.getElementById('filter-class').value=id;showView('documents');loadAll();}
-function applyFilters(){loadAll();}
+function filterClass(id){document.getElementById('filter-class').value=id;showView('documents');updatePropColSelect(id);loadAll();}
+function applyFilters(){const cls=document.getElementById('filter-class').value;updatePropColSelect(cls);loadAll();}
 function refreshAll(){loadAll();loadClasses();toast('Refreshed','success');}
+
+function updatePropColSelect(classId) {
+  const sel = document.getElementById('prop-col-select');
+  if (!sel) return;
+  if (!classId) { sel.style.display='none'; sel.innerHTML=''; return; }
+  const cls = (classes||[]).find(c=>c.id===classId);
+  const props = (cls && Array.isArray(cls.properties)) ? cls.properties : [];
+  if (!props.length) { sel.style.display='none'; sel.innerHTML=''; return; }
+  const prev = new Set(Array.from(sel.selectedOptions).map(o=>o.value));
+  sel.innerHTML = props.map(p=>`<option value="${p.id}"${prev.has(p.id)?' selected':''}>${escHtml(p.display_name||p.name)}</option>`).join('');
+  sel.style.display = '';
+}
+
+function selectedPropCols() {
+  const sel = document.getElementById('prop-col-select');
+  if (!sel || sel.style.display==='none') return [];
+  return Array.from(sel.selectedOptions).map(o=>({id:o.value,label:o.text}));
+}
+
+function propValDisplay(d, propId) {
+  const pv = (d.properties||[]).find(p=>p.property_template_id===propId);
+  if (!pv || pv.value===undefined || pv.value===null || pv.value==='') return '<span style="color:var(--text-muted)">–</span>';
+  return escHtml(String(pv.value));
+}
 function debounceSearch(){
   clearTimeout(searchTimeout);
   const val=(document.getElementById('search-input')||{}).value||'';
