@@ -54,8 +54,11 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 .folder-item{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:var(--radius);cursor:pointer;color:var(--text-secondary);font-size:12px;transition:all .15s;user-select:none;white-space:nowrap;overflow:hidden}
 .folder-item:hover{background:var(--bg-hover);color:var(--text-primary)}
 .folder-item.active{background:var(--accent-glow);color:var(--accent-light);font-weight:500}
-.folder-children{padding-left:14px}
-.folder-toggle{font-size:9px;color:var(--text-muted);flex-shrink:0;width:12px;text-align:center}
+.folder-children{padding-left:14px;display:none}
+.folder-children.open{display:block}
+.folder-toggle{font-size:11px;font-weight:700;color:var(--text-muted);flex-shrink:0;width:14px;text-align:center;line-height:1;border-radius:2px}
+.folder-toggle.has-children{cursor:pointer;color:var(--accent-light)}
+.folder-toggle.has-children:hover{color:var(--text-primary)}
 .folder-icon{font-size:12px;flex-shrink:0}
 .sidebar-footer{padding:10px;border-top:1px solid var(--border)}
 .user-pill{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius);background:var(--bg-hover);border:1px solid var(--border);cursor:pointer;transition:all .15s}
@@ -954,31 +957,75 @@ function flattenFolderTree(nodes, out=[]) {
   return out;
 }
 
-function renderFolderTree(nodes, container) {
+function renderFolderTree(nodes, container, depth) {
   if (!container) container = document.getElementById('folder-tree');
+  if (depth === undefined) depth = 0;
   container.innerHTML = '';
   for (const f of (nodes||[])) {
-    const item = document.createElement('div');
     const hasChildren = f.children && f.children.length > 0;
+    const item = document.createElement('div');
     item.className = 'folder-item' + (activeFolderID===f.id?' active':'');
     item.id = 'folder-nav-'+f.id;
-    item.innerHTML = `<span class="folder-toggle">${hasChildren?'▸':''}</span><span class="folder-icon">📁</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escHtml(f.name)}</span>`;
+
+    const toggleSpan = document.createElement('span');
+    toggleSpan.className = 'folder-toggle' + (hasChildren ? ' has-children' : '');
+    toggleSpan.textContent = hasChildren ? '+' : '';
+
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'folder-icon';
+    iconSpan.textContent = '📁';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis';
+    nameSpan.textContent = f.name;
+
+    item.appendChild(toggleSpan);
+    item.appendChild(iconSpan);
+    item.appendChild(nameSpan);
+
     item.onclick = (e) => { e.stopPropagation(); selectFolder(f.id); };
     if (hasPerm('documents:create') || hasPerm('folders:manage')) {
       item.oncontextmenu = (e) => { e.preventDefault(); showFolderCtxMenu(e, f); };
     }
     container.appendChild(item);
+
     if (hasChildren) {
       const childContainer = document.createElement('div');
       childContainer.className = 'folder-children';
-      renderFolderTree(f.children, childContainer);
+      renderFolderTree(f.children, childContainer, depth + 1);
       container.appendChild(childContainer);
+
+      toggleSpan.onclick = (e) => {
+        e.stopPropagation();
+        const expanded = childContainer.classList.toggle('open');
+        toggleSpan.textContent = expanded ? '−' : '+';
+      };
     }
+  }
+}
+
+function expandToFolder(id) {
+  // Walk up the folder tree and open each ancestor's child container
+  const map = {};
+  folders.forEach(f => map[f.id] = f);
+  let cur = map[id];
+  while (cur && cur.parent_id) {
+    const parentEl = document.getElementById('folder-nav-'+cur.parent_id);
+    if (parentEl) {
+      const childContainer = parentEl.nextElementSibling;
+      if (childContainer && childContainer.classList.contains('folder-children')) {
+        childContainer.classList.add('open');
+        const toggle = parentEl.querySelector('.folder-toggle');
+        if (toggle) toggle.textContent = '−';
+      }
+    }
+    cur = map[cur.parent_id];
   }
 }
 
 function selectFolder(id) {
   activeFolderID = id;
+  expandToFolder(id);
   document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
   const el = document.getElementById('folder-nav-'+activeFolderID);
   if (el) el.classList.add('active');
