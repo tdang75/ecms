@@ -1234,7 +1234,7 @@ function openUploadModal(folderID) {
   const head = document.getElementById('upload-modal-folder-hint');
   if (head) {
     const f = folderID ? folders.find(x=>x.id===folderID) : null;
-    head.textContent = f ? `Filing into: 📁 ${f.name}` : '';
+    head.textContent = f ? `Filing into: 📁 ${folderFullPath(f.id)}` : '';
     head.style.display = f ? '' : 'none';
   }
   document.getElementById('upload-modal').classList.add('open');
