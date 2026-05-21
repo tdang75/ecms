@@ -1036,6 +1036,19 @@ async function addSubFolder() {
   openNewFolderModal(f.id);
 }
 
+// Returns "Parent \ Child \ …" for a folder id, excluding system root nodes.
+function folderFullPath(id) {
+  const map = {};
+  folders.forEach(f => map[f.id] = f);
+  const parts = [];
+  let cur = map[id];
+  while (cur && !SYSTEM_FOLDER_IDS.has(cur.id)) {
+    parts.unshift(cur.name);
+    cur = cur.parent_id ? map[cur.parent_id] : null;
+  }
+  return parts.join(' \\ ') || id;
+}
+
 // Folder membership in document detail
 async function loadDocFolders(docID) {
   const sec = document.getElementById('doc-folders-section');
@@ -1044,7 +1057,7 @@ async function loadDocFolders(docID) {
     const r = await apiFetch('/documents/'+docID+'/folders');
     const docFolders = r.ok ? await r.json() : [];
     const canEdit = hasPerm('documents:read');
-    const items = docFolders.map(f=>`<span class="tag" style="cursor:default">📁 ${escHtml(f.name)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
+    const items = docFolders.map(f=>`<span class="tag" style="cursor:default">📁 ${escHtml(folderFullPath(f.id))}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
     sec.innerHTML = `<div class="section-title">Filed In${canEdit?` <button class="btn btn-sm" style="font-size:11px;padding:1px 7px;margin-left:8px" onclick="openFileFoldersModal('${escHtml(docID)}')">Edit</button>`:''}
     </div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${items}</div>`;
   } catch {}
@@ -1056,13 +1069,16 @@ async function openFileFoldersModal(docID) {
   const r = await apiFetch('/documents/'+docID+'/folders');
   const current = r.ok ? await r.json() : [];
   const currentIDs = new Set(current.map(f=>f.id));
-  // Render all folders as checkboxes (excluding root)
+  // Render all folders as checkboxes (excluding system roots), sorted by full path
   const container = document.getElementById('file-folders-list');
-  const allFolders = folders.filter(f => !SYSTEM_FOLDER_IDS.has(f.id));
+  const allFolders = folders
+    .filter(f => !SYSTEM_FOLDER_IDS.has(f.id))
+    .map(f => ({...f, _path: folderFullPath(f.id)}))
+    .sort((a, b) => a._path.localeCompare(b._path));
   container.innerHTML = allFolders.map(f=>`
     <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px">
       <input type="checkbox" value="${f.id}" ${currentIDs.has(f.id)?'checked':''}>
-      📁 ${escHtml(f.name)}
+      📁 ${escHtml(f._path)}
     </label>`).join('');
   document.getElementById('file-folders-modal').classList.add('open');
 }
