@@ -98,6 +98,9 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 .adv-cond-rm:hover{color:var(--danger);background:rgba(239,68,68,.08)}
 .adv-add-cond{margin:10px 12px;font-size:12px}
 .adv-search-actions{display:flex;gap:8px;margin-top:20px}
+.col-chip{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;font-size:11px;cursor:pointer;user-select:none;border:1px solid var(--border);color:var(--text-muted);background:var(--bg-hover);transition:all .15s}
+.col-chip:hover{border-color:var(--border-accent);color:var(--text-primary)}
+.col-chip.on{background:var(--accent-glow);border-color:var(--border-accent);color:var(--accent-light)}
 .adv-results-header{padding:0 0 10px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border);margin-bottom:12px}
 /* ── Class Change Modal ── */
 .cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:12px}
@@ -493,6 +496,10 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
           <div class="adv-search-actions">
             <button class="btn btn-primary adv-search-btn" onclick="execAdvSearch()">🔍 Search</button>
             <button class="btn" onclick="clearAdvSearch()">Clear</button>
+          </div>
+          <div class="adv-field-row" style="align-items:flex-start;margin-top:16px">
+            <label style="margin-top:4px">Columns</label>
+            <div id="adv-col-picker" style="display:flex;flex-wrap:wrap;gap:5px;flex:1;max-width:380px"></div>
           </div>
         </div>
 
@@ -911,6 +918,7 @@ function bootApp() {
   loadClasses();
   loadTemplates();
   loadFolders();
+  initSearchColPicker();
 }
 
 // ── Try restore session ────────────────────────────────────────────────────────
@@ -3627,9 +3635,39 @@ function clearAdvSearch() {
   document.getElementById('adv-conds-section').style.display = 'none';
   document.getElementById('adv-results').style.display = 'none';
   advSearchClassProps = [];
+  searchVisibleCols = new Set(SEARCH_COLS.filter(c => c.defaultOn).map(c => c.key));
+  initSearchColPicker();
 }
 
+const SEARCH_COLS = [
+  { key:'class',    label:'Class',         sortable:true,  defaultOn:true  },
+  { key:'user',     label:'User',          sortable:true,  defaultOn:true  },
+  { key:'status',   label:'Status',        sortable:true,  defaultOn:false },
+  { key:'tags',     label:'Tags',          sortable:false, defaultOn:true  },
+  { key:'category', label:'Category',      sortable:true,  defaultOn:false },
+  { key:'version',  label:'Ver',           sortable:true,  defaultOn:true  },
+  { key:'size',     label:'Size',          sortable:true,  defaultOn:true  },
+  { key:'uploaded', label:'Uploaded',      sortable:true,  defaultOn:true  },
+  { key:'modified', label:'Last Modified', sortable:true,  defaultOn:false },
+];
+let searchVisibleCols = new Set(SEARCH_COLS.filter(c => c.defaultOn).map(c => c.key));
 let searchSortCol = null, searchSortDir = 'asc';
+
+function initSearchColPicker() {
+  const picker = document.getElementById('adv-col-picker');
+  if (!picker) return;
+  picker.innerHTML = SEARCH_COLS.map(c =>
+    `<span class="col-chip${searchVisibleCols.has(c.key)?' on':''}" onclick="toggleSearchCol('${c.key}')" id="col-chip-${c.key}">${c.label}</span>`
+  ).join('');
+}
+
+function toggleSearchCol(key) {
+  if (searchVisibleCols.has(key)) searchVisibleCols.delete(key);
+  else searchVisibleCols.add(key);
+  const chip = document.getElementById('col-chip-'+key);
+  if (chip) chip.classList.toggle('on', searchVisibleCols.has(key));
+  if (window._advDocs) renderSearchTable();
+}
 
 function searchSortBy(col) {
   searchSortDir = searchSortCol === col && searchSortDir === 'asc' ? 'desc' : 'asc';
@@ -3645,9 +3683,12 @@ function searchSortedDocs() {
       case 'name':     return (d.name||'').toLowerCase();
       case 'class':    return (d.class_name||'').toLowerCase();
       case 'user':     return (d.created_by||'').toLowerCase();
+      case 'status':   return d.status||'';
+      case 'category': return (d.category||'').toLowerCase();
       case 'version':  return d.version||0;
       case 'size':     return d.file_size||0;
       case 'uploaded': return d.created_at||'';
+      case 'modified': return d.updated_at||'';
       default: return '';
     }
   };
@@ -3665,31 +3706,45 @@ function thSortSearch(col, label, extraStyle='') {
   return `<th class="sortable${cls}"${style} onclick="searchSortBy('${col}')">${label}</th>`;
 }
 
+function thPlain(label) { return `<th>${label}</th>`; }
+
 function renderSearchTable() {
   const container = document.getElementById('adv-results-container');
   if (!container) return;
+  const vis = searchVisibleCols;
   const rows = searchSortedDocs().map(d => {
     const [col,bg] = fileColor(d.name);
-    const cls = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
+    const clsCell = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
+    const statusBadge = `<span class="badge ${d.status==='active'?'badge-green':'badge-red'}">${d.status}</span>`;
+    const modifiedCell = d.updated_by
+      ? `<span style="font-size:11px">${fmtRel(d.updated_at)}<br><span style="color:var(--text-muted)">${escHtml(d.updated_by)}</span></span>`
+      : `<span style="color:var(--text-muted)">—</span>`;
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
-      <td>${cls}</td>
-      <td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>
-      <td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>
-      <td><span class="badge badge-gray">v${d.version}</span></td>
-      <td>${fmtSize(d.file_size)}</td>
-      <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
+      ${vis.has('class')    ? `<td>${clsCell}</td>` : ''}
+      ${vis.has('user')     ? `<td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>` : ''}
+      ${vis.has('status')   ? `<td>${statusBadge}</td>` : ''}
+      ${vis.has('tags')     ? `<td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>` : ''}
+      ${vis.has('category') ? `<td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.category||'—')}</span></td>` : ''}
+      ${vis.has('version')  ? `<td><span class="badge badge-gray">v${d.version}</span></td>` : ''}
+      ${vis.has('size')     ? `<td>${fmtSize(d.file_size)}</td>` : ''}
+      ${vis.has('uploaded') ? `<td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>` : ''}
+      ${vis.has('modified') ? `<td>${modifiedCell}</td>` : ''}
     </tr>`;
   }).join('');
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
-    ${thSortSearch('name','Document','width:34%')}
-    ${thSortSearch('class','Class')}
-    ${thSortSearch('user','User')}
-    <th>Tags</th>
-    ${thSortSearch('version','Ver')}
-    ${thSortSearch('size','Size')}
-    ${thSortSearch('uploaded','Uploaded')}
+  const hdr = `<div class="table-wrap"><table><thead><tr>
+    ${thSortSearch('name','Document','width:30%')}
+    ${vis.has('class')    ? thSortSearch('class','Class')         : ''}
+    ${vis.has('user')     ? thSortSearch('user','User')           : ''}
+    ${vis.has('status')   ? thSortSearch('status','Status')       : ''}
+    ${vis.has('tags')     ? thPlain('Tags')                       : ''}
+    ${vis.has('category') ? thSortSearch('category','Category')   : ''}
+    ${vis.has('version')  ? thSortSearch('version','Ver')         : ''}
+    ${vis.has('size')     ? thSortSearch('size','Size')           : ''}
+    ${vis.has('uploaded') ? thSortSearch('uploaded','Uploaded')   : ''}
+    ${vis.has('modified') ? thSortSearch('modified','Modified')   : ''}
   </tr></thead><tbody>${rows}</tbody></table></div>`;
+  container.innerHTML = hdr;
 }
 
 function renderAdvResults(docList) {
