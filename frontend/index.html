@@ -1351,12 +1351,12 @@ async function openDetail(id) {
   const _isOwner = currentUser && d.created_by === currentUser.username;
   const _canUpdate = hasPerm('documents:update') || _isOwner;
   const _canDelete = hasPerm('documents:delete') || _isOwner;
+  const _closeBtn=document.createElement('button');_closeBtn.className='btn';_closeBtn.textContent='Close';_closeBtn.onclick=()=>closeModal('detail-modal');foot.appendChild(_closeBtn);
   if(_canDelete){const b=document.createElement('button');b.className='btn btn-danger';b.textContent='Delete';b.onclick=deleteDocument;foot.appendChild(b);}
   if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn';b.textContent='👁 View';b.onclick=()=>viewDocument(currentDoc.id,currentDoc.name,currentDoc.mime_type||'');foot.appendChild(b);}
   if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='↺ New Version';b.onclick=newVersionModal;foot.appendChild(b);}
   if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='🏷 Change Class';b.onclick=openClassChangeModal;foot.appendChild(b);}
   if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn btn-primary';b.textContent='↓ Download';b.onclick=downloadDocument;foot.appendChild(b);}
-  if(!foot.children.length){const s=document.createElement('span');s.style.cssText='font-size:12px;color:var(--text-muted);margin:auto';s.textContent='Read-only access';foot.appendChild(s);}
 }
 
 // ── Download ───────────────────────────────────────────────────────────────────
