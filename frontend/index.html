@@ -384,7 +384,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
     <div id="content">
       <!-- Documents View -->
       <div id="view-documents">
-        <div class="stats-grid">
+        <div class="stats-grid" id="stats-grid" style="display:none">
           <div class="stat-card" style="--accent-color:var(--accent)"><div class="stat-label">Documents</div><div class="stat-value" id="stat-total">–</div><div class="stat-sub">Active files</div></div>
           <div class="stat-card" style="--accent-color:var(--success)"><div class="stat-label">Storage</div><div class="stat-value" id="stat-storage">–</div><div class="stat-sub">In MinIO / S3</div></div>
           <div class="stat-card" style="--accent-color:var(--warning)"><div class="stat-label">Classes</div><div class="stat-value" id="stat-cats">–</div><div class="stat-sub">Document classes</div></div>
@@ -899,6 +899,7 @@ function bootApp() {
 
   // Show/hide nav items based on permissions
   if (hasPerm('users:manage')) document.getElementById('nav-users').style.display = 'flex';
+  if (hasPerm('users:manage')) document.getElementById('stats-grid').style.display = '';
   if (hasPerm('taxonomy:create')) document.getElementById('nav-taxonomy').style.display = 'flex';
   if (hasPerm('taxonomy:create')) { document.getElementById('btn-new-class').style.display = 'flex'; document.getElementById('btn-new-template').style.display = 'flex'; }
   if (hasPerm('documents:create')) document.getElementById('upload-btn-top').style.display = '';
