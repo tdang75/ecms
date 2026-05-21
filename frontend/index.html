@@ -1046,7 +1046,7 @@ function folderFullPath(id) {
     parts.unshift(cur.name);
     cur = cur.parent_id ? map[cur.parent_id] : null;
   }
-  return parts.join(' \\ ') || id;
+  return parts.join(' \\ ') || (map[id] ? map[id].name : id);
 }
 
 // Folder membership in document detail
