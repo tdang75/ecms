@@ -246,6 +246,7 @@ type AdvancedSearchRequest struct {
 type Annotation struct {
 	ID         string    `json:"id"`
 	DocumentID string    `json:"document_id"`
+	Version    int       `json:"version"`
 	Page       int       `json:"page"`
 	Type       string    `json:"type"`
 	X          float64   `json:"x"`
@@ -660,6 +661,13 @@ func (a *App) initDB() error {
 			ALTER TABLE document_annotations DROP CONSTRAINT IF EXISTS document_annotations_annotation_type_check;
 			ALTER TABLE document_annotations ADD CONSTRAINT document_annotations_annotation_type_check
 				CHECK (annotation_type IN ('highlight','rectangle','text','redaction','stamp-approved','stamp-rejected','arrow'));
+		EXCEPTION WHEN others THEN NULL;
+		END $$;
+	`)
+	// Add doc_version column to annotations (idempotent migration).
+	a.db.Exec(context.Background(), `
+		DO $$ BEGIN
+			ALTER TABLE document_annotations ADD COLUMN doc_version INTEGER NOT NULL DEFAULT 1;
 		EXCEPTION WHEN others THEN NULL;
 		END $$;
 	`)
@@ -1797,10 +1805,21 @@ func (a *App) handleListAnnotations(w http.ResponseWriter, r *http.Request) {
 	if !a.docAllowed(r.Context(), id, ACLRead, claimsFrom(r)) {
 		writeError(w, 403, "access denied"); return
 	}
+	var docVersion int
+	if vStr := r.URL.Query().Get("version"); vStr != "" {
+		fmt.Sscanf(vStr, "%d", &docVersion)
+	}
+	if docVersion <= 0 {
+		a.db.QueryRow(r.Context(), `SELECT version FROM documents WHERE id=$1`, id).Scan(&docVersion)
+	}
+	if docVersion <= 0 {
+		docVersion = 1
+	}
 	rows, err := a.db.Query(r.Context(),
-		`SELECT id, document_id, page, annotation_type, x, y, width, height,
+		`SELECT id, document_id, doc_version, page, annotation_type, x, y, width, height,
 		 COALESCE(color,''), COALESCE(content,''), author, created_at
-		 FROM document_annotations WHERE document_id=$1 ORDER BY page, created_at`, id)
+		 FROM document_annotations WHERE document_id=$1 AND doc_version=$2 ORDER BY page, created_at`,
+		id, docVersion)
 	if err != nil {
 		writeError(w, 500, err.Error()); return
 	}
@@ -1808,7 +1827,7 @@ func (a *App) handleListAnnotations(w http.ResponseWriter, r *http.Request) {
 	anns := []Annotation{}
 	for rows.Next() {
 		var ann Annotation
-		rows.Scan(&ann.ID, &ann.DocumentID, &ann.Page, &ann.Type,
+		rows.Scan(&ann.ID, &ann.DocumentID, &ann.Version, &ann.Page, &ann.Type,
 			&ann.X, &ann.Y, &ann.Width, &ann.Height,
 			&ann.Color, &ann.Content, &ann.Author, &ann.CreatedAt)
 		anns = append(anns, ann)
@@ -1830,13 +1849,19 @@ func (a *App) handleCreateAnnotation(w http.ResponseWriter, r *http.Request) {
 	if !valid[inp.Type] {
 		writeError(w, 400, "invalid annotation type"); return
 	}
+	if inp.Version <= 0 {
+		a.db.QueryRow(r.Context(), `SELECT version FROM documents WHERE id=$1`, id).Scan(&inp.Version)
+	}
+	if inp.Version <= 0 {
+		inp.Version = 1
+	}
 	var annID string
 	var createdAt time.Time
 	err := a.db.QueryRow(r.Context(),
 		`INSERT INTO document_annotations
-		 (document_id, page, annotation_type, x, y, width, height, color, content, author)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, created_at`,
-		id, inp.Page, inp.Type, inp.X, inp.Y, inp.Width, inp.Height, inp.Color, inp.Content, claims.Username,
+		 (document_id, doc_version, page, annotation_type, x, y, width, height, color, content, author)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, created_at`,
+		id, inp.Version, inp.Page, inp.Type, inp.X, inp.Y, inp.Width, inp.Height, inp.Color, inp.Content, claims.Username,
 	).Scan(&annID, &createdAt)
 	if err != nil {
 		writeError(w, 500, err.Error()); return

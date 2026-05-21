@@ -81,10 +81,60 @@ func TestAnnotations_InvalidType(t *testing.T) {
 	docID := uploadDoc(t, tok, "ann-bad-"+uid()+".pdf", "%PDF-1.4")
 
 	resp := apiDo(t, "POST", "/documents/"+docID+"/annotations", map[string]any{
-		"page": 1, "type": "arrow",
+		"page": 1, "type": "freehand",
 		"x": 0.0, "y": 0.0, "width": 0.1, "height": 0.1,
 	}, tok)
 	mustStatus(t, resp, 400)
+}
+
+func TestAnnotations_VersionIsolation(t *testing.T) {
+	tok := adminToken(t)
+	docID := uploadDoc(t, tok, "ann-ver-"+uid()+".pdf", "%PDF-1.4")
+
+	// Create annotation for version 1 (explicit)
+	resp1 := apiDo(t, "POST", "/documents/"+docID+"/annotations", map[string]any{
+		"page": 1, "type": "highlight", "version": 1,
+		"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.05,
+	}, tok)
+	mustStatus(t, resp1, 201)
+
+	// Create annotation for version 2
+	resp2 := apiDo(t, "POST", "/documents/"+docID+"/annotations", map[string]any{
+		"page": 1, "type": "rectangle", "version": 2,
+		"x": 0.2, "y": 0.2, "width": 0.2, "height": 0.05,
+	}, tok)
+	mustStatus(t, resp2, 201)
+	var ann2 map[string]any
+	mustDecode(t, resp2.Body, &ann2)
+	ann2ID, _ := ann2["id"].(string)
+
+	// GET ?version=1 should not contain the v2 annotation
+	r1 := apiDo(t, "GET", "/documents/"+docID+"/annotations?version=1", nil, tok)
+	mustStatus(t, r1, 200)
+	var anns1 []any
+	mustDecode(t, r1.Body, &anns1)
+	for _, a := range anns1 {
+		am, _ := a.(map[string]any)
+		if am["id"] == ann2ID {
+			t.Fatal("v2 annotation appeared in v1 results")
+		}
+	}
+
+	// GET ?version=2 should contain the v2 annotation
+	r2 := apiDo(t, "GET", "/documents/"+docID+"/annotations?version=2", nil, tok)
+	mustStatus(t, r2, 200)
+	var anns2 []any
+	mustDecode(t, r2.Body, &anns2)
+	found := false
+	for _, a := range anns2 {
+		am, _ := a.(map[string]any)
+		if am["id"] == ann2ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("v2 annotation not found in v2 results")
+	}
 }
 
 func TestAnnotations_DeleteNotFound(t *testing.T) {

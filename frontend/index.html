@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1245,7 +1245,7 @@ function renderDocs() {
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
     const canDel = hasPerm('documents:delete') || (currentUser && d.created_by === currentUser.username);
-    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
+    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
       <td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>
@@ -1254,7 +1254,7 @@ function renderDocs() {
       <td>${fmtSize(d.file_size)}</td>
       <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
       <td><div class="row-actions" onclick="event.stopPropagation()">
-        ${canDl?`<button class="btn btn-sm" onclick="viewDocument('${d.id}','${escHtml(d.name)}','${escHtml(d.mime_type||'')}')" title="View">👁</button>`:''}
+        ${canDl?`<button class="btn btn-sm" onclick="viewDocument('${d.id}','${escHtml(d.name)}','${escHtml(d.mime_type||'')}',${d.version||1})" title="View">👁</button>`:''}
         ${canDl?`<button class="btn btn-sm" onclick="downloadDocById('${d.id}')">↓</button>`:''}
         ${canDel?`<button class="btn btn-sm btn-danger" onclick="deleteDocById('${d.id}')">✕</button>`:''}
       </div></td>
@@ -1273,8 +1273,8 @@ function renderDocs() {
 }
 
 // ── Row click: single → viewer, double → detail ──────────────────────────────
-function rowClick(id, name, mime) {
-  viewDocument(id, name, mime);
+function rowClick(id, name, mime, version) {
+  viewDocument(id, name, mime, version);
 }
 function rowDblClick(id) {
   openDetail(id);
@@ -1327,7 +1327,7 @@ function ctxView() {
   const id = _ctxDocID; hideDocCtxMenu();
   if (!id) return;
   const d = docs.find(x => x.id === id);
-  if (d) viewDocument(d.id, d.name, d.mime_type||'');
+  if (d) viewDocument(d.id, d.name, d.mime_type||'', d.version||1);
 }
 function ctxDownload()    { const id = _ctxDocID; hideDocCtxMenu(); if (id) downloadDocById(id); }
 function ctxDelete()      { const id = _ctxDocID; hideDocCtxMenu(); if (id) deleteDocById(id); }
@@ -1442,7 +1442,7 @@ async function openDetail(id) {
   document.getElementById('detail-icon').textContent=d.class_icon||fileLabel(d.name);
   document.getElementById('detail-name').style.cursor='pointer';
   document.getElementById('detail-name').title='Click to view document';
-  document.getElementById('detail-name').onclick=()=>viewDocument(d.id,d.name,d.mime_type||'');
+  document.getElementById('detail-name').onclick=()=>viewDocument(d.id,d.name,d.mime_type||'',d.version||1);
   document.getElementById('detail-name').textContent=d.name;
 
   const propsHtml=d.properties&&d.properties.length?`<div style="margin-bottom:18px"><div class="section-title">Class Properties${d.class_name?` — ${d.class_icon||''} ${escHtml(d.class_name)}`:''}</div><div class="prop-section">${d.properties.map(p=>`<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)} <span style="font-size:10px;color:var(--text-muted)">[${p.data_type}]</span></div><div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div></div>`).join('')}</div></div>`:'';
@@ -1475,7 +1475,7 @@ async function openDetail(id) {
   const _canDelete = hasPerm('documents:delete') || _isOwner;
   const _closeBtn=document.createElement('button');_closeBtn.className='btn';_closeBtn.textContent='Close';_closeBtn.onclick=()=>closeModal('detail-modal');foot.appendChild(_closeBtn);
   if(_canDelete){const b=document.createElement('button');b.className='btn btn-danger';b.textContent='Delete';b.onclick=deleteDocument;foot.appendChild(b);}
-  if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn';b.textContent='👁 View';b.onclick=()=>viewDocument(currentDoc.id,currentDoc.name,currentDoc.mime_type||'');foot.appendChild(b);}
+  if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn';b.textContent='👁 View';b.onclick=()=>viewDocument(currentDoc.id,currentDoc.name,currentDoc.mime_type||'',currentDoc.version||1);foot.appendChild(b);}
   if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='↺ New Version';b.onclick=newVersionModal;foot.appendChild(b);}
   if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='🏷 Change Class';b.onclick=openClassChangeModal;foot.appendChild(b);}
   if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn btn-primary';b.textContent='↓ Download';b.onclick=downloadDocument;foot.appendChild(b);}
@@ -2783,8 +2783,8 @@ function getViewMode(name, mime) {
   return 'download';
 }
 
-async function viewDocument(id, name, mime) {
-  viewer.docId = id; viewer.docName = name;
+async function viewDocument(id, name, mime, version) {
+  viewer.docId = id; viewer.docName = name; viewer.docVersion = version || 1;
   viewer.zoomPct = 100; viewer.currentPage = 1; viewer.totalPages = 1;
   viewer.annotations = []; viewer.activeTool = 'select';
   viewer.pdfDoc = null; viewer.tiffIFDs = null; viewer.tiffBuf = null;
@@ -3058,7 +3058,7 @@ async function placeStamp(e) {
   const ay = Math.max(0, Math.min(pt.y - sh/2, 1 - sh));
   try {
     const ann = await apiAnnot('POST', viewer.docId, null,
-      { document_id: viewer.docId, page: viewer.currentPage,
+      { document_id: viewer.docId, version: viewer.docVersion, page: viewer.currentPage,
         type: viewer.activeTool, x: ax, y: ay, width: sw, height: sh, content: '' });
     viewer.annotations.push(ann);
     renderAnnotations();
@@ -3111,7 +3111,7 @@ async function annotUp(e) {
 
   try {
     const ann = await apiAnnot('POST', viewer.docId, null,
-      { document_id: viewer.docId, page: viewer.currentPage,
+      { document_id: viewer.docId, version: viewer.docVersion, page: viewer.currentPage,
         type: viewer.activeTool, x: ax, y: ay, width: aw, height: ah, content });
     viewer.annotations.push(ann);
     renderAnnotations();
@@ -3214,7 +3214,7 @@ async function apiAnnot(method, docId, annId, data) {
 
 async function loadAnnotations() {
   try {
-    const r = await apiFetch(`/documents/${viewer.docId}/annotations`);
+    const r = await apiFetch(`/documents/${viewer.docId}/annotations?version=${viewer.docVersion}`);
     viewer.annotations = r.ok ? await r.json() : [];
   } catch { viewer.annotations = []; }
   renderAnnotList();
@@ -3617,7 +3617,7 @@ function renderAdvResults(docList) {
   const rows = docList.map(d => {
     const [col,bg] = fileColor(d.name);
     const cls = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
-    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}')" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
+    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
       <td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>
