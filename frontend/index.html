@@ -811,6 +811,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
   <div class="ctx-item" id="ctx-download"   onclick="ctxDownload()">↓ Download</div>
   <div class="ctx-sep"  id="ctx-sep-delete"></div>
   <div class="ctx-item ctx-item-danger" id="ctx-delete" onclick="ctxDelete()">✕ Delete</div>
+  <div class="ctx-item ctx-item-danger" id="ctx-hard-delete" onclick="ctxHardDelete()" style="font-weight:600">⊗ Hard Delete</div>
 </div>
 
 <div id="toast-container"></div>
@@ -1291,10 +1292,12 @@ function showDocCtxMenu(e, id) {
   const doc    = [...docs, ...(window._advDocs||[])].find(d => d.id === id);
   const isOwner = doc && currentUser && doc.created_by === currentUser.username;
   const canDel = hasPerm('documents:delete') || isOwner;
-  document.getElementById('ctx-view').style.display     = canDl  ? '' : 'none';
-  document.getElementById('ctx-download').style.display = canDl  ? '' : 'none';
-  document.getElementById('ctx-sep-delete').style.display = canDel ? '' : 'none';
-  document.getElementById('ctx-delete').style.display   = canDel ? '' : 'none';
+  const canHardDel = hasPerm('documents:delete');
+  document.getElementById('ctx-view').style.display       = canDl      ? '' : 'none';
+  document.getElementById('ctx-download').style.display   = canDl      ? '' : 'none';
+  document.getElementById('ctx-sep-delete').style.display = canDel     ? '' : 'none';
+  document.getElementById('ctx-delete').style.display     = canDel     ? '' : 'none';
+  document.getElementById('ctx-hard-delete').style.display = canHardDel ? '' : 'none';
   const menu = document.getElementById('doc-ctx-menu');
   menu.classList.add('open');
   const vw = window.innerWidth, vh = window.innerHeight;
@@ -1331,6 +1334,7 @@ function ctxView() {
 }
 function ctxDownload()    { const id = _ctxDocID; hideDocCtxMenu(); if (id) downloadDocById(id); }
 function ctxDelete()      { const id = _ctxDocID; hideDocCtxMenu(); if (id) deleteDocById(id); }
+function ctxHardDelete()  { const id = _ctxDocID; hideDocCtxMenu(); if (id) hardDeleteDocById(id); }
 function ctxFileFolder()  { const id = _ctxDocID; hideDocCtxMenu(); if (id) openFileFoldersModal(id); }
 async function ctxAuditLog() {
   const id = _ctxDocID; hideDocCtxMenu(); if (!id) return;
@@ -1476,6 +1480,7 @@ async function openDetail(id) {
   const _canDelete = hasPerm('documents:delete') || _isOwner;
   const _closeBtn=document.createElement('button');_closeBtn.className='btn';_closeBtn.textContent='Close';_closeBtn.onclick=()=>closeModal('detail-modal');foot.appendChild(_closeBtn);
   if(_canDelete){const b=document.createElement('button');b.className='btn btn-danger';b.textContent='Delete';b.onclick=deleteDocument;foot.appendChild(b);}
+  if(hasPerm('documents:delete')){const b=document.createElement('button');b.className='btn btn-danger';b.style.fontWeight='600';b.textContent='⊗ Hard Delete';b.onclick=hardDeleteDocument;foot.appendChild(b);}
   if(hasPerm('documents:download')){const b=document.createElement('button');b.className='btn';b.textContent='👁 View';b.onclick=()=>viewDocument(currentDoc.id,currentDoc.name,currentDoc.mime_type||'',currentDoc.version||1);foot.appendChild(b);}
   if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='↺ New Version';b.onclick=newVersionModal;foot.appendChild(b);}
   if(_canUpdate){const b=document.createElement('button');b.className='btn';b.textContent='🏷 Change Class';b.onclick=openClassChangeModal;foot.appendChild(b);}
@@ -1501,11 +1506,20 @@ async function downloadDocument(){if(currentDoc)await downloadDocById(currentDoc
 
 // ── Delete ─────────────────────────────────────────────────────────────────────
 async function deleteDocById(id) {
-  if(!confirm('Soft-delete this document?'))return;
+  if(!confirm('Soft-delete this document? It will be hidden but recoverable.'))return;
   await apiFetch('/documents/'+id,{method:'DELETE'});
   toast('Document deleted','success');await loadAll();
 }
+async function hardDeleteDocById(id) {
+  const doc = [...docs, ...(window._advDocs||[])].find(d => d.id === id);
+  const name = doc ? doc.name : id;
+  if(!confirm(`HARD DELETE "${name}"?\n\nThis permanently removes the file from storage and cannot be undone.`))return;
+  const r = await apiFetch('/documents/'+id+'?hard=true',{method:'DELETE'});
+  if(r.ok){toast('Document permanently deleted','success');await loadAll();}
+  else{toast('Delete failed','error');}
+}
 async function deleteDocument(){if(!currentDoc)return;await deleteDocById(currentDoc.id);closeModal('detail-modal');}
+async function hardDeleteDocument(){if(!currentDoc)return;await hardDeleteDocById(currentDoc.id);closeModal('detail-modal');}
 
 // ── Version ────────────────────────────────────────────────────────────────────
 function newVersionModal(){versionFile=null;document.getElementById('version-file-label').textContent='';document.getElementById('version-comment').value='';document.getElementById('version-modal').classList.add('open');}
