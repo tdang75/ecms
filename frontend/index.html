@@ -746,6 +746,18 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
   <div class="ctx-item ctx-item-danger" id="folder-ctx-delete" onclick="deleteFolder()">✕ Delete Folder</div>
 </div>
 
+<!-- ── Audit Log Modal ── -->
+<div class="modal-overlay" id="audit-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head"><h2>📋 Audit Log</h2><button class="btn btn-sm" onclick="closeModal('audit-modal')" style="margin-left:auto">✕</button></div>
+    <div class="modal-body">
+      <div id="audit-modal-doc-name" style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:12px"></div>
+      <div id="audit-modal-list" class="audit-list" style="max-height:420px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('audit-modal')">Close</button></div>
+  </div>
+</div>
+
 <!-- ── New Folder Modal ── -->
 <div class="modal-overlay" id="new-folder-modal">
   <div class="modal" style="max-width:380px">
@@ -787,6 +799,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
   <div class="ctx-item" id="ctx-view"       onclick="ctxView()">👁 View Document</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ctx-file-folder" onclick="ctxFileFolder()">📁 File in Folder</div>
+  <div class="ctx-item" id="ctx-audit-log"  onclick="ctxAuditLog()">🕒 Audit Log</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ctx-download"   onclick="ctxDownload()">↓ Download</div>
   <div class="ctx-sep"  id="ctx-sep-delete"></div>
@@ -1222,6 +1235,20 @@ function ctxView() {
 function ctxDownload()    { const id = _ctxDocID; hideDocCtxMenu(); if (id) downloadDocById(id); }
 function ctxDelete()      { const id = _ctxDocID; hideDocCtxMenu(); if (id) deleteDocById(id); }
 function ctxFileFolder()  { const id = _ctxDocID; hideDocCtxMenu(); if (id) openFileFoldersModal(id); }
+async function ctxAuditLog() {
+  const id = _ctxDocID; hideDocCtxMenu(); if (!id) return;
+  document.getElementById('audit-modal-doc-name').textContent = 'Loading…';
+  document.getElementById('audit-modal-list').innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+  document.getElementById('audit-modal').classList.add('open');
+  try {
+    const r = await apiFetch('/documents/'+id);
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    document.getElementById('audit-modal-doc-name').textContent = d.name;
+    const html = (d.audit||[]).map(a=>`<div class="audit-item"><div class="audit-dot"></div><span>${escHtml(a.action.replace(/_/g,' '))} by <strong>${escHtml(a.actor)}</strong></span><span class="audit-ts">${fmtRel(a.created_at)}</span></div>`).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:6px 0">No activity</div>';
+    document.getElementById('audit-modal-list').innerHTML = html;
+  } catch(e) { document.getElementById('audit-modal-list').innerHTML = `<div style="color:var(--danger);font-size:13px">Failed to load: ${escHtml(e.message)}</div>`; }
+}
 
 // ── Upload ─────────────────────────────────────────────────────────────────────
 function openUploadModal(folderID) {
@@ -1324,7 +1351,6 @@ async function openDetail(id) {
   const propsHtml=d.properties&&d.properties.length?`<div style="margin-bottom:18px"><div class="section-title">Class Properties${d.class_name?` — ${d.class_icon||''} ${escHtml(d.class_name)}`:''}</div><div class="prop-section">${d.properties.map(p=>`<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)} <span style="font-size:10px;color:var(--text-muted)">[${p.data_type}]</span></div><div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div></div>`).join('')}</div></div>`:'';
 
   const versHtml=(d.versions||[]).map(v=>`<div class="version-item"><span class="version-num">v${v.version}</span><span style="color:var(--text-secondary);font-size:12px">${fmtSize(v.file_size)}</span>${v.comment?`<span style="color:var(--text-muted);font-size:11px;font-style:italic">${escHtml(v.comment)}</span>`:''}<span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${fmtRel(v.uploaded_at)}</span></div>`).join('')||'<div style="padding:10px;color:var(--text-muted);font-size:13px">No history</div>';
-  const auditHtml=(d.audit||[]).map(a=>`<div class="audit-item"><div class="audit-dot"></div><span>${escHtml(a.action.replace(/_/g,' '))} by <strong>${escHtml(a.actor)}</strong></span><span class="audit-ts">${fmtRel(a.created_at)}</span></div>`).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:6px 0">No activity</div>';
 
   document.getElementById('detail-body').innerHTML=`
     <div class="detail-grid">
@@ -1339,8 +1365,7 @@ async function openDetail(id) {
     <div style="margin-bottom:16px" id="doc-folders-section"></div>
     ${propsHtml}
     ${renderACLSection(d)}
-    <div style="margin-bottom:16px"><div class="section-title">Version History</div><div class="version-list">${versHtml}</div></div>
-    <div><div class="section-title">Audit Log</div><div class="audit-list">${auditHtml}</div></div>`;
+    <div><div class="section-title">Version History</div><div class="version-list">${versHtml}</div></div>`;
 
   // Load and render folder membership
   loadDocFolders(d.id);
