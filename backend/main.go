@@ -198,6 +198,7 @@ type Document struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	CreatedBy   string          `json:"created_by"`
+	UpdatedBy   string          `json:"updated_by"`
 	Properties  []PropertyValue `json:"properties,omitempty"`
 }
 
@@ -671,6 +672,13 @@ func (a *App) initDB() error {
 		EXCEPTION WHEN others THEN NULL;
 		END $$;
 	`)
+	// Add updated_by column to documents (idempotent migration).
+	a.db.Exec(context.Background(), `
+		DO $$ BEGIN
+			ALTER TABLE documents ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+		EXCEPTION WHEN others THEN NULL;
+		END $$;
+	`)
 	log.Println("✅ Database schema initialized")
 	return nil
 }
@@ -827,14 +835,14 @@ func (a *App) audit(docID, action, actor string, details any) {
 		docID, action, actor, b)
 }
 
-const docCols = `d.id,d.name,d.description,d.class_id,dc.name,dc.icon,d.category,d.tags,d.s3_key,d.s3_bucket,d.file_size,d.mime_type,d.version,d.status,d.created_at,d.updated_at,d.created_by`
+const docCols = `d.id,d.name,d.description,d.class_id,dc.name,dc.icon,d.category,d.tags,d.s3_key,d.s3_bucket,d.file_size,d.mime_type,d.version,d.status,d.created_at,d.updated_at,d.created_by,COALESCE(d.updated_by,'')`
 const docFrom = `FROM documents d LEFT JOIN document_classes dc ON d.class_id=dc.id`
 
 func scanDoc(row interface{ Scan(...any) error }) (Document, error) {
 	var d Document
 	err := row.Scan(&d.ID, &d.Name, &d.Description, &d.ClassID, &d.ClassName, &d.ClassIcon,
 		&d.Category, &d.Tags, &d.S3Key, &d.S3Bucket, &d.FileSize, &d.MimeType,
-		&d.Version, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.CreatedBy)
+		&d.Version, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.CreatedBy, &d.UpdatedBy)
 	if d.Tags == nil {
 		d.Tags = []string{}
 	}
@@ -1643,8 +1651,8 @@ func (a *App) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	_, uerr := a.db.Exec(context.Background(),
-		`UPDATE documents SET name=COALESCE($1,name),description=COALESCE($2,description),class_id=COALESCE($3,class_id),category=COALESCE($4,category),tags=COALESCE($5,tags),status=COALESCE($6,status),updated_at=NOW() WHERE id=$7`,
-		body.Name, body.Description, body.ClassID, body.Category, body.Tags, body.Status, id)
+		`UPDATE documents SET name=COALESCE($1,name),description=COALESCE($2,description),class_id=COALESCE($3,class_id),category=COALESCE($4,category),tags=COALESCE($5,tags),status=COALESCE($6,status),updated_at=NOW(),updated_by=$8 WHERE id=$7`,
+		body.Name, body.Description, body.ClassID, body.Category, body.Tags, body.Status, id, actor)
 	if uerr != nil { writeError(w, 404, "not found"); return }
 	d, _ := scanDoc(a.db.QueryRow(context.Background(), `SELECT `+docCols+` `+docFrom+` WHERE d.id=$1`, id))
 	a.audit(id, "update", actor, body)
@@ -1667,6 +1675,7 @@ func (a *App) handleSetProperties(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.savePropertyValues(context.Background(), id, inputs)
+	a.db.Exec(context.Background(), `UPDATE documents SET updated_at=NOW(),updated_by=$1 WHERE id=$2`, actor, id)
 	a.audit(id, "update_properties", actor, map[string]int{"count": len(inputs)})
 	writeJSON(w, 200, map[string]bool{"success": true})
 }
@@ -1688,7 +1697,7 @@ func (a *App) handleNewVersion(w http.ResponseWriter, r *http.Request) {
 	s3Key := fmt.Sprintf("documents/%s/v%d/%s", id, newVer, header.Filename)
 	a.s3Put(s3Key, header.Header.Get("Content-Type"), data)
 	a.db.Exec(context.Background(), `INSERT INTO document_versions (id,document_id,version,s3_key,file_size,comment) VALUES ($1,$2,$3,$4,$5,$6)`, uuid.New().String(), id, newVer, s3Key, header.Size, r.FormValue("comment"))
-	a.db.Exec(context.Background(), `UPDATE documents SET version=$1,s3_key=$2,file_size=$3,updated_at=NOW() WHERE id=$4`, newVer, s3Key, header.Size, id)
+	a.db.Exec(context.Background(), `UPDATE documents SET version=$1,s3_key=$2,file_size=$3,updated_at=NOW(),updated_by=$5 WHERE id=$4`, newVer, s3Key, header.Size, id, actor)
 	d, _ := scanDoc(a.db.QueryRow(context.Background(), `SELECT `+docCols+` `+docFrom+` WHERE d.id=$1`, id))
 	a.audit(id, "new_version", actor, map[string]any{"version": newVer, "s3_key": s3Key})
 	writeJSON(w, 200, d)
@@ -1733,7 +1742,7 @@ func (a *App) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	action := "soft_delete"
 	if hard { a.s3Delete(s3Key); a.db.Exec(context.Background(), `DELETE FROM documents WHERE id=$1`, id); action = "hard_delete" } else {
-		a.db.Exec(context.Background(), `UPDATE documents SET status='deleted',updated_at=NOW() WHERE id=$1`, id)
+		a.db.Exec(context.Background(), `UPDATE documents SET status='deleted',updated_at=NOW(),updated_by=$2 WHERE id=$1`, id, actor)
 	}
 	a.audit(id, action, actor, map[string]string{"s3_key": s3Key})
 	writeJSON(w, 200, map[string]bool{"success": true})
