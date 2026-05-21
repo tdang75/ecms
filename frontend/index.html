@@ -131,6 +131,10 @@ body{background:var(--bg);color:var(--text-primary);min-height:100vh;font-size:1
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead tr{border-bottom:1px solid var(--border)}
 th{text-align:left;padding:9px 13px;font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--text-muted);background:var(--bg-panel)}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--text-primary)}
+th.sort-asc::after{content:' ▲';font-size:8px;opacity:.8}
+th.sort-desc::after{content:' ▼';font-size:8px;opacity:.8}
 tbody tr{border-bottom:1px solid var(--border);transition:background .12s;cursor:pointer}
 tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:var(--bg-hover)}
@@ -1150,11 +1154,46 @@ function updateStats(s) {
 }
 
 // ── Render Documents ───────────────────────────────────────────────────────────
+let sortCol = null, sortDir = 'asc';
+
+function sortBy(col) {
+  sortDir = sortCol === col && sortDir === 'asc' ? 'desc' : 'asc';
+  sortCol = col;
+  renderDocs();
+}
+
+function sortedDocs() {
+  if (!sortCol) return docs;
+  const val = d => {
+    switch(sortCol) {
+      case 'name':     return (d.name||'').toLowerCase();
+      case 'class':    return (d.class_name||'').toLowerCase();
+      case 'user':     return (d.created_by||'').toLowerCase();
+      case 'version':  return d.version||0;
+      case 'size':     return d.file_size||0;
+      case 'uploaded': return d.created_at||'';
+      default: return '';
+    }
+  };
+  return [...docs].sort((a,b) => {
+    const va=val(a), vb=val(b);
+    if (va<vb) return sortDir==='asc'?-1:1;
+    if (va>vb) return sortDir==='asc'?1:-1;
+    return 0;
+  });
+}
+
+function thSort(col, label, extraStyle='') {
+  const cls = sortCol===col ? ` sort-${sortDir}` : '';
+  const style = extraStyle ? ` style="${extraStyle}"` : '';
+  return `<th class="sortable${cls}"${style} onclick="sortBy('${col}')">${label}</th>`;
+}
+
 function renderDocs() {
   const c = document.getElementById('docs-container');
   if (!docs.length) { c.innerHTML=`<div class="table-wrap"><div class="empty"><div class="empty-icon">📁</div><h3>No documents</h3><p>Upload your first document to get started.</p>${hasPerm('documents:create')?'<button class="btn btn-primary" onclick="openUploadModal()">Upload Document</button>':''}</div></div>`; return; }
   const canDl = hasPerm('documents:download');
-  const rows = docs.map(d=>{
+  const rows = sortedDocs().map(d=>{
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
     const canDel = hasPerm('documents:delete') || (currentUser && d.created_by === currentUser.username);
@@ -1173,7 +1212,16 @@ function renderDocs() {
       </div></td>
     </tr>`;
   }).join('');
-  c.innerHTML=`<div class="table-wrap"><table><thead><tr><th style="width:32%">Document</th><th>Class</th><th>User</th><th>Tags</th><th>Ver</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  c.innerHTML=`<div class="table-wrap"><table><thead><tr>
+    ${thSort('name','Document','width:32%')}
+    ${thSort('class','Class')}
+    ${thSort('user','User')}
+    <th>Tags</th>
+    ${thSort('version','Ver')}
+    ${thSort('size','Size')}
+    ${thSort('uploaded','Uploaded')}
+    <th></th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ── Row click: single → viewer, double → detail ──────────────────────────────
