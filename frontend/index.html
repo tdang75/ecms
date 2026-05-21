@@ -3603,18 +3603,46 @@ function clearAdvSearch() {
   advSearchClassProps = [];
 }
 
-function renderAdvResults(docList) {
-  window._advDocs = docList;
-  const resultsDiv = document.getElementById('adv-results');
-  const countEl = document.getElementById('adv-results-count');
+let searchSortCol = null, searchSortDir = 'asc';
+
+function searchSortBy(col) {
+  searchSortDir = searchSortCol === col && searchSortDir === 'asc' ? 'desc' : 'asc';
+  searchSortCol = col;
+  renderSearchTable();
+}
+
+function searchSortedDocs() {
+  const docList = window._advDocs || [];
+  if (!searchSortCol) return docList;
+  const val = d => {
+    switch(searchSortCol) {
+      case 'name':     return (d.name||'').toLowerCase();
+      case 'class':    return (d.class_name||'').toLowerCase();
+      case 'user':     return (d.created_by||'').toLowerCase();
+      case 'version':  return d.version||0;
+      case 'size':     return d.file_size||0;
+      case 'uploaded': return d.created_at||'';
+      default: return '';
+    }
+  };
+  return [...docList].sort((a,b) => {
+    const va=val(a), vb=val(b);
+    if (va<vb) return searchSortDir==='asc'?-1:1;
+    if (va>vb) return searchSortDir==='asc'?1:-1;
+    return 0;
+  });
+}
+
+function thSortSearch(col, label, extraStyle='') {
+  const cls = searchSortCol===col ? ` sort-${searchSortDir}` : '';
+  const style = extraStyle ? ` style="${extraStyle}"` : '';
+  return `<th class="sortable${cls}"${style} onclick="searchSortBy('${col}')">${label}</th>`;
+}
+
+function renderSearchTable() {
   const container = document.getElementById('adv-results-container');
-  countEl.textContent = docList.length + ' document' + (docList.length !== 1 ? 's' : '') + ' found';
-  if (!docList.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><h3>No results</h3><p>Try adjusting your search criteria.</p></div>';
-    resultsDiv.style.display = '';
-    return;
-  }
-  const rows = docList.map(d => {
+  if (!container) return;
+  const rows = searchSortedDocs().map(d => {
     const [col,bg] = fileColor(d.name);
     const cls = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
@@ -3622,11 +3650,34 @@ function renderAdvResults(docList) {
       <td>${cls}</td>
       <td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>
       <td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>
+      <td><span class="badge badge-gray">v${d.version}</span></td>
       <td>${fmtSize(d.file_size)}</td>
       <td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>
     </tr>`;
   }).join('');
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th style="width:36%">Document</th><th>Class</th><th>User</th><th>Tags</th><th>Size</th><th>Uploaded</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
+    ${thSortSearch('name','Document','width:34%')}
+    ${thSortSearch('class','Class')}
+    ${thSortSearch('user','User')}
+    <th>Tags</th>
+    ${thSortSearch('version','Ver')}
+    ${thSortSearch('size','Size')}
+    ${thSortSearch('uploaded','Uploaded')}
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderAdvResults(docList) {
+  window._advDocs = docList;
+  searchSortCol = null; searchSortDir = 'asc';
+  const resultsDiv = document.getElementById('adv-results');
+  const countEl = document.getElementById('adv-results-count');
+  countEl.textContent = docList.length + ' document' + (docList.length !== 1 ? 's' : '') + ' found';
+  if (!docList.length) {
+    document.getElementById('adv-results-container').innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><h3>No results</h3><p>Try adjusting your search criteria.</p></div>';
+    resultsDiv.style.display = '';
+    return;
+  }
+  renderSearchTable();
   resultsDiv.style.display = '';
 }
 
