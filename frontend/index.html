@@ -1276,7 +1276,7 @@ function renderDocs() {
   const rows = sortedDocs().map(d=>{
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
-    const canDel = hasPerm('documents:delete') || (currentUser && d.created_by === currentUser.username);
+    const canDel = hasPerm('documents:delete') || d.user_is_owner || (currentUser && d.created_by === currentUser.username);
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
@@ -1323,7 +1323,7 @@ function showDocCtxMenu(e, id) {
   _ctxDocID = id;
   const canDl  = hasPerm('documents:download');
   const doc    = [...docs, ...(window._advDocs||[])].find(d => d.id === id);
-  const isOwner = doc && currentUser && doc.created_by === currentUser.username;
+  const isOwner = doc && (doc.user_is_owner || (currentUser && doc.created_by === currentUser.username));
   const canDel = hasPerm('documents:delete') || isOwner;
   const canHardDel = hasPerm('documents:delete');
   const isDeleted  = doc && doc.status === 'deleted';
@@ -3885,7 +3885,7 @@ function selectedPropCols() {
 function propValDisplay(d, propId) {
   const pv = (d.properties||[]).find(p=>p.property_template_id===propId);
   if (!pv || pv.value===undefined || pv.value===null || pv.value==='') return '<span style="color:var(--text-muted)">–</span>';
-  return escHtml(String(pv.value));
+  return escHtml(fmtPropValue(pv));
 }
 
 function fmtPropValue(p) {

@@ -201,6 +201,7 @@ type Document struct {
 	CreatedBy   string          `json:"created_by"`
 	UpdatedBy   string          `json:"updated_by"`
 	Properties  []PropertyValue `json:"properties,omitempty"`
+	UserIsOwner bool            `json:"user_is_owner,omitempty"`
 }
 
 type ACLEntry struct {
@@ -1201,6 +1202,22 @@ func (a *App) loadPropertiesBatch(ctx context.Context, docIDs []string) map[stri
 	return result
 }
 
+// loadOwnershipBatch returns the set of document IDs where the caller has the owner ACL operation.
+func (a *App) loadOwnershipBatch(ctx context.Context, docIDs []string, claims *Claims) map[string]bool {
+	result := map[string]bool{}
+	if len(docIDs) == 0 || claims == nil { return result }
+	principals := []string{"user:" + claims.Username}
+	for _, g := range claims.Groups { principals = append(principals, "group:"+g) }
+	rows, err := a.db.Query(ctx,
+		`SELECT DISTINCT document_id::text FROM document_acl
+		 WHERE document_id=ANY($1::uuid[]) AND principal=ANY($2) AND 'owner'=ANY(operations)`,
+		docIDs, principals)
+	if err != nil { return result }
+	defer rows.Close()
+	for rows.Next() { var id string; rows.Scan(&id); result[id] = true }
+	return result
+}
+
 func (a *App) handleGetClass(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var c DocumentClass
@@ -1512,12 +1529,14 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		if d, err := scanDoc(rows); err == nil { docs = append(docs, d) }
 	}
+	ids := make([]string, len(docs))
+	for i, d := range docs { ids[i] = d.ID }
 	if q.Get("with_props") == "true" {
-		ids := make([]string, len(docs))
-		for i, d := range docs { ids[i] = d.ID }
 		pm := a.loadPropertiesBatch(context.Background(), ids)
 		for i := range docs { docs[i].Properties = pm[docs[i].ID] }
 	}
+	om := a.loadOwnershipBatch(context.Background(), ids, claims)
+	for i := range docs { docs[i].UserIsOwner = om[docs[i].ID] }
 	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
 }
 
@@ -1656,12 +1675,14 @@ func (a *App) handleAdvancedSearch(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		if d, err := scanDoc(rows); err == nil { docs = append(docs, d) }
 	}
+	ids := make([]string, len(docs))
+	for i, d := range docs { ids[i] = d.ID }
 	if req.WithProps {
-		ids := make([]string, len(docs))
-		for i, d := range docs { ids[i] = d.ID }
 		pm := a.loadPropertiesBatch(context.Background(), ids)
 		for i := range docs { docs[i].Properties = pm[docs[i].ID] }
 	}
+	om := a.loadOwnershipBatch(context.Background(), ids, claims)
+	for i := range docs { docs[i].UserIsOwner = om[docs[i].ID] }
 	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
 }
 
