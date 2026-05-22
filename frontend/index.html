@@ -1175,6 +1175,7 @@ async function saveDocFolders() {
 function populateClassFilters() {
   const sel = document.getElementById('filter-class');
   sel.innerHTML = '<option value="">All classes</option>'+classes.map(c=>`<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
+  sel.addEventListener('change', () => updatePropColSelect(sel.value));
   const up = document.getElementById('doc-class');
   if (up) up.innerHTML = '<option value="">— None —</option>'+classes.map(c=>`<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
 }
@@ -3770,8 +3771,8 @@ function renderAdvResults(docList) {
   resultsDiv.style.display = '';
 }
 
-function filterClass(id){document.getElementById('filter-class').value=id;showView('documents');updatePropColSelect(id);loadAll();}
-function applyFilters(){const cls=document.getElementById('filter-class').value;updatePropColSelect(cls);loadAll();}
+function filterClass(id){document.getElementById('filter-class').value=id;updatePropColSelect(id);showView('documents');loadAll();}
+function applyFilters(){loadAll();}
 function refreshAll(){loadAll();loadClasses();toast('Refreshed','success');}
 
 function updatePropColSelect(classId) {
