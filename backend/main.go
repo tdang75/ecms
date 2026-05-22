@@ -1463,7 +1463,33 @@ func (a *App) getACL(ctx context.Context, docID string) []ACLEntry {
 
 // ── Document Handlers ──────────────────────────────────────────────────────────
 
+// aclReadFilter appends a SQL AND clause (and args) restricting results to
+// documents the caller has at least read access to.
+// A document is visible when:
+//   (a) one of the user's principals has an ACL entry granting read or owner, OR
+//   (b) none of the user's principals has any ACL entry (fall back to sys perms)
+//       — but only when the user holds the documents:read system permission.
+func aclReadFilter(claims *Claims, args *[]any, idx *int) string {
+	if claims == nil {
+		return " AND FALSE"
+	}
+	principals := []string{"user:" + claims.Username}
+	for _, g := range claims.Groups {
+		principals = append(principals, "group:"+g)
+	}
+	p := *idx
+	*args = append(*args, principals)
+	*idx++
+	aclGrant := fmt.Sprintf(`EXISTS (SELECT 1 FROM document_acl acl WHERE acl.document_id=d.id AND acl.principal=ANY($%d) AND ('read'=ANY(acl.operations) OR 'owner'=ANY(acl.operations)))`, p)
+	noEntry  := fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM document_acl acl WHERE acl.document_id=d.id AND acl.principal=ANY($%d))`, p)
+	if hasPerm(claims, PermDocRead) {
+		return " AND (" + aclGrant + " OR " + noEntry + ")"
+	}
+	return " AND " + aclGrant
+}
+
 func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFrom(r)
 	q := r.URL.Query()
 	status := q.Get("status"); if status == "" { status = "active" }
 	query := `SELECT ` + docCols + ` ` + docFrom + ` WHERE d.status=$1`
@@ -1476,6 +1502,7 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	if t := q.Get("tags"); t != "" { query += fmt.Sprintf(" AND d.tags && $%d", i); args = append(args, strings.Split(t, ",")); i++ }
 	if fid := q.Get("folder_id"); fid != "" { query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM document_folders df WHERE df.document_id=d.id AND df.folder_id=$%d)", i); args = append(args, fid); i++ }
+	query += aclReadFilter(claims, &args, &i)
 	_ = i
 	query += " ORDER BY d.created_at DESC"
 	rows, err := a.db.Query(context.Background(), query, args...)
@@ -1517,6 +1544,7 @@ func advDTCast(dt string) string {
 }
 
 func (a *App) handleAdvancedSearch(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFrom(r)
 	var req AdvancedSearchRequest
 	json.NewDecoder(r.Body).Decode(&req)
 	if req.Status == "" { req.Status = "active" }
@@ -1524,6 +1552,7 @@ func (a *App) handleAdvancedSearch(w http.ResponseWriter, r *http.Request) {
 
 	query := `SELECT ` + docCols + ` ` + docFrom + ` WHERE d.status=$1`
 	args := []any{req.Status}; i := 2
+	query += aclReadFilter(claims, &args, &i)
 
 	if req.ClassID != "" {
 		query += fmt.Sprintf(" AND d.class_id=$%d", i); args = append(args, req.ClassID); i++
