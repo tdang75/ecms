@@ -851,17 +851,11 @@ func scanDoc(row interface{ Scan(...any) error }) (Document, error) {
 	return d, err
 }
 
-func (a *App) loadProperties(ctx context.Context, docID string) ([]PropertyValue, error) {
-	rows, err := a.db.Query(ctx, `
-		SELECT pt.id,pt.name,pt.display_name,pt.data_type,
-		       pv.value_string,pv.value_integer,pv.value_decimal,
-		       pv.value_boolean,pv.value_date,pv.value_datetime
-		FROM document_property_values pv
-		JOIN property_templates pt ON pv.property_template_id=pt.id
-		WHERE pv.document_id=$1 ORDER BY pt.name`, docID)
-	if err != nil {
-		return nil, err
-	}
+func scanPropertyRows(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Close()
+}) []PropertyValue {
 	defer rows.Close()
 	var props []PropertyValue
 	for rows.Next() {
@@ -880,7 +874,33 @@ func (a *App) loadProperties(ctx context.Context, docID string) ([]PropertyValue
 		}
 		props = append(props, pv)
 	}
-	return props, nil
+	return props
+}
+
+func (a *App) loadProperties(ctx context.Context, docID string, classID *string) ([]PropertyValue, error) {
+	if classID != nil {
+		// Show ALL properties assigned to the class; LEFT JOIN so unset ones appear with nil value
+		rows, err := a.db.Query(ctx, `
+			SELECT pt.id,pt.name,pt.display_name,pt.data_type,
+			       pv.value_string,pv.value_integer,pv.value_decimal,
+			       pv.value_boolean,pv.value_date,pv.value_datetime
+			FROM class_property_assignments cpa
+			JOIN property_templates pt ON cpa.property_template_id=pt.id
+			LEFT JOIN document_property_values pv ON pv.property_template_id=pt.id AND pv.document_id=$1
+			WHERE cpa.class_id=$2
+			ORDER BY cpa.sort_order,pt.name`, docID, *classID)
+		if err != nil { return nil, err }
+		return scanPropertyRows(rows), nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT pt.id,pt.name,pt.display_name,pt.data_type,
+		       pv.value_string,pv.value_integer,pv.value_decimal,
+		       pv.value_boolean,pv.value_date,pv.value_datetime
+		FROM document_property_values pv
+		JOIN property_templates pt ON pv.property_template_id=pt.id
+		WHERE pv.document_id=$1 ORDER BY pt.name`, docID)
+	if err != nil { return nil, err }
+	return scanPropertyRows(rows), nil
 }
 
 func (a *App) savePropertyValues(ctx context.Context, docID string, inputs []PropInput) {
@@ -1623,7 +1643,7 @@ func (a *App) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	if !a.docAllowed(r.Context(), id, ACLRead, claimsFrom(r)) {
 		writeError(w, 403, "access denied"); return
 	}
-	props, _ := a.loadProperties(context.Background(), id)
+	props, _ := a.loadProperties(context.Background(), id, d.ClassID)
 	d.Properties = props
 	vRows, _ := a.db.Query(context.Background(), `SELECT id,document_id,version,s3_key,file_size,uploaded_at,comment FROM document_versions WHERE document_id=$1 ORDER BY version DESC`, id)
 	defer vRows.Close()

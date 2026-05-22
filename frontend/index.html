@@ -1469,7 +1469,7 @@ async function openDetail(id) {
   const _isOwner = currentUser && d.created_by === currentUser.username;
   const _canUpdate = hasPerm('documents:update') || _isOwner;
 
-  const propsHtml=d.properties&&d.properties.length?`<div style="margin-bottom:18px"><div class="section-title" style="display:flex;align-items:center;justify-content:space-between">Class Properties${d.class_name?` — ${d.class_icon||''} ${escHtml(d.class_name)}`:''} ${_canUpdate?`<button id="detail-save-props-btn" class="btn btn-sm btn-primary" style="font-size:11px;padding:2px 10px" onclick="saveDetailProperties()">Save Properties</button>`:''}</div><div class="prop-section">${d.properties.map(p=>`<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)} <span style="font-size:10px;color:var(--text-muted)">[${p.data_type}]</span></div>${_canUpdate?propInputHtml(p):`<div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div>`}</div>`).join('')}</div></div>`:'';
+  const propsHtml=d.properties&&d.properties.length?`<div style="margin-bottom:18px"><div class="section-title" style="display:flex;align-items:center;justify-content:space-between">Class Properties${d.class_name?` — ${d.class_icon||''} ${escHtml(d.class_name)}`:''} ${_canUpdate?`<button id="detail-save-props-btn" class="btn btn-sm btn-primary" style="font-size:11px;padding:2px 10px" onclick="saveDetailProperties()">Save Properties</button>`:''}</div><div class="prop-section">${d.properties.map(p=>`<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)} <span style="font-size:10px;color:var(--text-muted)">[${p.data_type}]</span></div>${_canUpdate?propInputHtml(p):`<div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${fmtPropValue(p)}</div>`}</div>`).join('')}</div></div>`:'';
 
   const versHtml=(d.versions||[]).map(v=>`<div class="version-item"><span class="version-num">v${v.version}</span><span style="color:var(--text-secondary);font-size:12px">${fmtSize(v.file_size)}</span>${v.comment?`<span style="color:var(--text-muted);font-size:11px;font-style:italic">${escHtml(v.comment)}</span>`:''}<span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${fmtRel(v.uploaded_at)}</span></div>`).join('')||'<div style="padding:10px;color:var(--text-muted);font-size:13px">No history</div>';
 
@@ -3426,7 +3426,7 @@ async function onCCClassChange() {
     // Left panel: current class read-only reference
     document.getElementById('cc-old-title').textContent = (currentDoc.class_icon||'') + (currentDoc.class_name ? ' ' + currentDoc.class_name : 'Unclassified') + ' — current';
     document.getElementById('cc-old-props').innerHTML = oldProps.length
-      ? oldProps.map(p => `<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)}</div><div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div></div>`).join('')
+      ? oldProps.map(p => `<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)}</div><div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${fmtPropValue(p)}</div></div>`).join('')
       : '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No properties in current class.</div>';
 
     // Right panel: new class editable fields, auto-filled where templates match
@@ -3808,6 +3808,16 @@ function propValDisplay(d, propId) {
   const pv = (d.properties||[]).find(p=>p.property_template_id===propId);
   if (!pv || pv.value===undefined || pv.value===null || pv.value==='') return '<span style="color:var(--text-muted)">–</span>';
   return escHtml(String(pv.value));
+}
+
+function fmtPropValue(p) {
+  if (p.value === null || p.value === undefined) return '—';
+  if (p.data_type === 'boolean') {
+    if (p.value === true  || p.value === 'true')  return 'Yes';
+    if (p.value === false || p.value === 'false') return 'No';
+    return '—';
+  }
+  return escHtml(String(p.value));
 }
 
 function propInputHtml(p) {
