@@ -493,18 +493,14 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
             </div>
           </div>
 
-          <div class="adv-field-row" id="adv-prop-col-row" style="display:none">
+          <div class="adv-field-row" id="adv-prop-col-row">
             <label>Show Columns</label>
-            <select multiple id="adv-prop-col-select" style="height:72px;flex:1;max-width:360px"></select>
+            <select multiple id="adv-prop-col-select" style="height:120px;flex:1;max-width:360px" onchange="if(window._advDocs)renderSearchTable()"></select>
           </div>
 
           <div class="adv-search-actions">
             <button class="btn btn-primary adv-search-btn" onclick="execAdvSearch()">🔍 Search</button>
             <button class="btn" onclick="clearAdvSearch()">Clear</button>
-          </div>
-          <div class="adv-field-row" style="align-items:flex-start;margin-top:16px">
-            <label style="margin-top:4px">Columns</label>
-            <select multiple id="adv-col-select" style="height:120px;flex:1;max-width:360px" onchange="onSearchColChange()"></select>
           </div>
         </div>
 
@@ -923,7 +919,6 @@ function bootApp() {
   loadClasses();
   loadTemplates();
   loadFolders();
-  initSearchColPicker();
 }
 
 // ── Try restore session ────────────────────────────────────────────────────────
@@ -3525,11 +3520,27 @@ const ADV_OPS = {
 const ADV_NO_VAL = new Set(['is_empty','is_not_empty','is_true','is_false']);
 const ADV_TWO_VAL = new Set(['between']);
 
+const ADV_SYS_COLS = [
+  { key:'name',     label:'Document' },
+  { key:'class',    label:'Class'    },
+  { key:'user',     label:'User'     },
+  { key:'tags',     label:'Tags'     },
+  { key:'version',  label:'Ver'      },
+  { key:'size',     label:'Size'     },
+  { key:'uploaded', label:'Uploaded' },
+];
+
 function initAdvSearch() {
   const sel = document.getElementById('adv-class');
   if (!sel) return;
   sel.innerHTML = '<option value="">All classes</option>' +
     classes.map(c => `<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
+  const colSel = document.getElementById('adv-prop-col-select');
+  if (colSel && !colSel.querySelector('[data-coltype="system"]')) {
+    colSel.innerHTML = ADV_SYS_COLS.map(c =>
+      `<option value="${c.key}" data-coltype="system" selected>${c.label}</option>`
+    ).join('');
+  }
 }
 
 async function onAdvClassChange() {
@@ -3537,7 +3548,12 @@ async function onAdvClassChange() {
   const section = document.getElementById('adv-conds-section');
   document.getElementById('adv-conds-list').innerHTML = '';
   advSearchClassProps = [];
-  if (!classID) { section.style.display = 'none'; return; }
+  if (!classID) {
+    section.style.display = 'none';
+    const colSel = document.getElementById('adv-prop-col-select');
+    if (colSel) Array.from(colSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    return;
+  }
   try {
     const r = await apiFetch('/classes/' + classID);
     if (!r.ok) throw new Error();
@@ -3549,14 +3565,14 @@ async function onAdvClassChange() {
     }));
     section.style.display = '';
     const colSel = document.getElementById('adv-prop-col-select');
-    const colRow = document.getElementById('adv-prop-col-row');
-    if (colSel && colRow) {
-      if (advSearchClassProps.length) {
-        colSel.innerHTML = advSearchClassProps.map(p => `<option value="${p.id}">${escHtml(p.display_name)}</option>`).join('');
-        colRow.style.display = '';
-      } else {
-        colSel.innerHTML = ''; colRow.style.display = 'none';
-      }
+    if (colSel) {
+      Array.from(colSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+      advSearchClassProps.forEach(p => {
+        const o = document.createElement('option');
+        o.value = p.id; o.dataset.coltype = 'prop'; o.selected = true;
+        o.textContent = escHtml(p.display_name);
+        colSel.appendChild(o);
+      });
     }
   } catch(e) { toast('Failed to load class properties','error'); }
 }
@@ -3616,7 +3632,9 @@ function onAdvOpChange(opSel) {
 function selectedAdvPropCols() {
   const sel = document.getElementById('adv-prop-col-select');
   if (!sel) return [];
-  return Array.from(sel.selectedOptions).map(o => ({id: o.value, label: o.text}));
+  return Array.from(sel.selectedOptions)
+    .filter(o => o.dataset.coltype === 'prop')
+    .map(o => ({id: o.value, label: o.text}));
 }
 
 async function execAdvSearch() {
@@ -3664,40 +3682,14 @@ function clearAdvSearch() {
   document.getElementById('adv-conds-section').style.display = 'none';
   document.getElementById('adv-results').style.display = 'none';
   advSearchClassProps = [];
-  initSearchColPicker();
   const colSel = document.getElementById('adv-prop-col-select');
-  const colRow = document.getElementById('adv-prop-col-row');
-  if (colSel) colSel.innerHTML = '';
-  if (colRow) colRow.style.display = 'none';
+  if (colSel) {
+    Array.from(colSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    Array.from(colSel.options).forEach(o => o.selected = true);
+  }
 }
 
-const SEARCH_COLS = [
-  { key:'name',     label:'Document', sortable:true  },
-  { key:'class',    label:'Class',    sortable:true  },
-  { key:'user',     label:'User',     sortable:true  },
-  { key:'tags',     label:'Tags',     sortable:false },
-  { key:'version',  label:'Ver',      sortable:true  },
-  { key:'size',     label:'Size',     sortable:true  },
-  { key:'uploaded', label:'Uploaded', sortable:true  },
-];
-let searchVisibleCols = new Set(SEARCH_COLS.map(c => c.key));
 let searchSortCol = null, searchSortDir = 'asc';
-
-function initSearchColPicker() {
-  const sel = document.getElementById('adv-col-select');
-  if (!sel) return;
-  sel.innerHTML = SEARCH_COLS.map(c =>
-    `<option value="${c.key}" selected>${c.label}</option>`
-  ).join('');
-  searchVisibleCols = new Set(SEARCH_COLS.map(c => c.key));
-}
-
-function onSearchColChange() {
-  const sel = document.getElementById('adv-col-select');
-  if (!sel) return;
-  searchVisibleCols = new Set(Array.from(sel.selectedOptions).map(o => o.value));
-  if (window._advDocs) renderSearchTable();
-}
 
 function searchSortBy(col) {
   searchSortDir = searchSortCol === col && searchSortDir === 'asc' ? 'desc' : 'asc';
@@ -3746,15 +3738,12 @@ function thPlain(label) { return `<th>${label}</th>`; }
 function renderSearchTable() {
   const container = document.getElementById('adv-results-container');
   if (!container) return;
-  const vis = searchVisibleCols;
+  const colSel = document.getElementById('adv-prop-col-select');
+  const vis = new Set(colSel ? Array.from(colSel.selectedOptions).filter(o=>o.dataset.coltype==='system').map(o=>o.value) : ADV_SYS_COLS.map(c=>c.key));
   const propCols = selectedAdvPropCols();
   const rows = searchSortedDocs().map(d => {
     const [col,bg] = fileColor(d.name);
     const clsCell = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
-    const statusBadge = `<span class="badge ${d.status==='active'?'badge-green':'badge-red'}">${d.status}</span>`;
-    const modifiedCell = d.updated_by
-      ? `<span style="font-size:11px">${fmtRel(d.updated_at)}<br><span style="color:var(--text-muted)">${escHtml(d.updated_by)}</span></span>`
-      : `<span style="color:var(--text-muted)">—</span>`;
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       ${vis.has('name')     ? `<td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>` : ''}
       ${vis.has('class')    ? `<td>${clsCell}</td>` : ''}
@@ -3767,13 +3756,13 @@ function renderSearchTable() {
     </tr>`;
   }).join('');
   container.innerHTML = `<div class="table-wrap"><table><thead><tr>
-    ${vis.has('name')     ? thSortSearch('name','Document','width:30%')    : ''}
-    ${vis.has('class')    ? thSortSearch('class','Class')                  : ''}
-    ${vis.has('user')     ? thSortSearch('user','User')                    : ''}
-    ${vis.has('tags')     ? thPlain('Tags')                                : ''}
-    ${vis.has('version')  ? thSortSearch('version','Ver')                  : ''}
-    ${vis.has('size')     ? thSortSearch('size','Size')                    : ''}
-    ${vis.has('uploaded') ? thSortSearch('uploaded','Uploaded')            : ''}
+    ${vis.has('name')     ? thSortSearch('name','Document','width:30%') : ''}
+    ${vis.has('class')    ? thSortSearch('class','Class')               : ''}
+    ${vis.has('user')     ? thSortSearch('user','User')                 : ''}
+    ${vis.has('tags')     ? thPlain('Tags')                             : ''}
+    ${vis.has('version')  ? thSortSearch('version','Ver')               : ''}
+    ${vis.has('size')     ? thSortSearch('size','Size')                 : ''}
+    ${vis.has('uploaded') ? thSortSearch('uploaded','Uploaded')         : ''}
     ${propCols.map(p=>thSortSearch(p.id,escHtml(p.label),'font-size:12px;white-space:nowrap')).join('')}
   </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
