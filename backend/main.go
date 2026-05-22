@@ -243,6 +243,7 @@ type AdvancedSearchRequest struct {
 	FolderID   string            `json:"folder_id"`
 	Logic      string            `json:"logic"`
 	Conditions []SearchCondition `json:"conditions"`
+	WithProps  bool              `json:"with_props"`
 }
 
 type Annotation struct {
@@ -1605,6 +1606,12 @@ func (a *App) handleAdvancedSearch(w http.ResponseWriter, r *http.Request) {
 	docs := []Document{}
 	for rows.Next() {
 		if d, err := scanDoc(rows); err == nil { docs = append(docs, d) }
+	}
+	if req.WithProps {
+		ids := make([]string, len(docs))
+		for i, d := range docs { ids[i] = d.ID }
+		pm := a.loadPropertiesBatch(context.Background(), ids)
+		for i := range docs { docs[i].Properties = pm[docs[i].ID] }
 	}
 	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
 }

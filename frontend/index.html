@@ -400,7 +400,6 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
           <select class="filter-select" id="filter-class" autocomplete="off" onchange="updatePropColSelect(this.value);applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" autocomplete="off" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
           <select multiple id="prop-col-select" title="Select property columns to display" onchange="loadAll()" style="display:none"></select>
-
           <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal(activeFolderID)" style="display:none">+ Upload</button>
           <div class="ml-auto"></div>
         </div>
@@ -495,6 +494,11 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
             <div style="padding:8px 12px">
               <button class="btn adv-add-cond" onclick="addAdvCondition()" style="font-size:12px">+ Add Condition</button>
             </div>
+          </div>
+
+          <div class="adv-field-row" id="adv-prop-col-row" style="display:none">
+            <label>Show Columns</label>
+            <select multiple id="adv-prop-col-select" style="height:72px;flex:1;max-width:360px"></select>
           </div>
 
           <div class="adv-search-actions">
@@ -1185,8 +1189,8 @@ async function loadAll() {
   container.innerHTML = '<div class="page-loading"><div class="spinner"></div> Loading documents…</div>';
   try {
     const params = {};
-    const cls = document.getElementById('filter-class').value;
-    const status = document.getElementById('filter-status').value||'active';
+    const cls = (document.getElementById('filter-class')||{}).value || '';
+    const status = (document.getElementById('filter-status')||{}).value || 'active';
     if (cls) params.class_id = cls;
     if (status) params.status = status;
     if (activeFolderID) params.folder_id = activeFolderID;
@@ -1470,7 +1474,10 @@ async function openDetail(id) {
   document.getElementById('detail-name').onclick=()=>viewDocument(d.id,d.name,d.mime_type||'',d.version||1);
   document.getElementById('detail-name').textContent=d.name;
 
-  const propsHtml=d.properties&&d.properties.length?`<div style="margin-bottom:18px"><div class="section-title">Class Properties${d.class_name?` — ${d.class_icon||''} ${escHtml(d.class_name)}`:''}</div><div class="prop-section">${d.properties.map(p=>`<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)} <span style="font-size:10px;color:var(--text-muted)">[${p.data_type}]</span></div><div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div></div>`).join('')}</div></div>`:'';
+  const _isOwner = currentUser && d.created_by === currentUser.username;
+  const _canUpdate = hasPerm('documents:update') || _isOwner;
+
+  const propsHtml=d.properties&&d.properties.length?`<div style="margin-bottom:18px"><div class="section-title" style="display:flex;align-items:center;justify-content:space-between">Class Properties${d.class_name?` — ${d.class_icon||''} ${escHtml(d.class_name)}`:''} ${_canUpdate?`<button id="detail-save-props-btn" class="btn btn-sm btn-primary" style="font-size:11px;padding:2px 10px" onclick="saveDetailProperties()">Save Properties</button>`:''}</div><div class="prop-section">${d.properties.map(p=>`<div class="prop-field"><div class="prop-label">${escHtml(p.display_name)} <span style="font-size:10px;color:var(--text-muted)">[${p.data_type}]</span></div>${_canUpdate?propInputHtml(p):`<div class="prop-value ${p.value===null||p.value===undefined?'empty-val':''}">${p.value!==null&&p.value!==undefined?escHtml(String(p.value)):'—'}</div>`}</div>`).join('')}</div></div>`:'';
 
   const versHtml=(d.versions||[]).map(v=>`<div class="version-item"><span class="version-num">v${v.version}</span><span style="color:var(--text-secondary);font-size:12px">${fmtSize(v.file_size)}</span>${v.comment?`<span style="color:var(--text-muted);font-size:11px;font-style:italic">${escHtml(v.comment)}</span>`:''}<span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${fmtRel(v.uploaded_at)}</span></div>`).join('')||'<div style="padding:10px;color:var(--text-muted);font-size:13px">No history</div>';
 
@@ -1496,8 +1503,6 @@ async function openDetail(id) {
   // Build footer buttons based on permissions
   const foot=document.getElementById('detail-foot');
   foot.innerHTML='';
-  const _isOwner = currentUser && d.created_by === currentUser.username;
-  const _canUpdate = hasPerm('documents:update') || _isOwner;
   const _canDelete = hasPerm('documents:delete') || _isOwner;
   const _closeBtn=document.createElement('button');_closeBtn.className='btn';_closeBtn.textContent='Close';_closeBtn.onclick=()=>closeModal('detail-modal');foot.appendChild(_closeBtn);
   if(hasPerm('documents:delete')&&d.status==='deleted'){const b=document.createElement('button');b.className='btn';b.style.color='var(--success)';b.textContent='↩ Undelete';b.onclick=undeleteDocument;foot.appendChild(b);}
@@ -3546,6 +3551,16 @@ async function onAdvClassChange() {
       data_type: p.template ? p.template.data_type : (p.data_type || 'string'),
     }));
     section.style.display = '';
+    const colSel = document.getElementById('adv-prop-col-select');
+    const colRow = document.getElementById('adv-prop-col-row');
+    if (colSel && colRow) {
+      if (advSearchClassProps.length) {
+        colSel.innerHTML = advSearchClassProps.map(p => `<option value="${p.id}">${escHtml(p.display_name)}</option>`).join('');
+        colRow.style.display = '';
+      } else {
+        colSel.innerHTML = ''; colRow.style.display = 'none';
+      }
+    }
   } catch(e) { toast('Failed to load class properties','error'); }
 }
 
@@ -3601,13 +3616,21 @@ function onAdvOpChange(opSel) {
   }
 }
 
+function selectedAdvPropCols() {
+  const sel = document.getElementById('adv-prop-col-select');
+  if (!sel) return [];
+  return Array.from(sel.selectedOptions).map(o => ({id: o.value, label: o.text}));
+}
+
 async function execAdvSearch() {
+  const advPropCols = selectedAdvPropCols();
   const body = {
     status: document.getElementById('adv-status').value,
     text: (document.getElementById('adv-text').value||'').trim(),
     class_id: document.getElementById('adv-class').value,
     logic: document.getElementById('adv-logic').value || 'AND',
     conditions: [],
+    with_props: advPropCols.length > 0,
   };
   document.querySelectorAll('#adv-conds-list .adv-cond-row').forEach(row => {
     const propSel = row.querySelector('.adv-prop-sel');
@@ -3646,6 +3669,10 @@ function clearAdvSearch() {
   advSearchClassProps = [];
   searchVisibleCols = new Set(SEARCH_COLS.filter(c => c.defaultOn).map(c => c.key));
   initSearchColPicker();
+  const colSel = document.getElementById('adv-prop-col-select');
+  const colRow = document.getElementById('adv-prop-col-row');
+  if (colSel) colSel.innerHTML = '';
+  if (colRow) colRow.style.display = 'none';
 }
 
 const SEARCH_COLS = [
@@ -3698,7 +3725,12 @@ function searchSortedDocs() {
       case 'size':     return d.file_size||0;
       case 'uploaded': return d.created_at||'';
       case 'modified': return d.updated_at||'';
-      default: return '';
+      default: {
+        const pv = (d.properties||[]).find(p=>p.property_template_id===searchSortCol);
+        const v = pv ? pv.value : null;
+        if (v===null||v===undefined) return '';
+        return typeof v === 'string' ? v.toLowerCase() : v;
+      }
     }
   };
   return [...docList].sort((a,b) => {
@@ -3721,6 +3753,7 @@ function renderSearchTable() {
   const container = document.getElementById('adv-results-container');
   if (!container) return;
   const vis = searchVisibleCols;
+  const propCols = selectedAdvPropCols();
   const rows = searchSortedDocs().map(d => {
     const [col,bg] = fileColor(d.name);
     const clsCell = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
@@ -3739,9 +3772,10 @@ function renderSearchTable() {
       ${vis.has('size')     ? `<td>${fmtSize(d.file_size)}</td>` : ''}
       ${vis.has('uploaded') ? `<td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>` : ''}
       ${vis.has('modified') ? `<td>${modifiedCell}</td>` : ''}
+      ${propCols.map(p=>`<td style="font-size:12px;white-space:nowrap;color:var(--text-secondary)">${propValDisplay(d,p.id)}</td>`).join('')}
     </tr>`;
   }).join('');
-  const hdr = `<div class="table-wrap"><table><thead><tr>
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
     ${thSortSearch('name','Document','width:30%')}
     ${vis.has('class')    ? thSortSearch('class','Class')         : ''}
     ${vis.has('user')     ? thSortSearch('user','User')           : ''}
@@ -3752,8 +3786,8 @@ function renderSearchTable() {
     ${vis.has('size')     ? thSortSearch('size','Size')           : ''}
     ${vis.has('uploaded') ? thSortSearch('uploaded','Uploaded')   : ''}
     ${vis.has('modified') ? thSortSearch('modified','Modified')   : ''}
+    ${propCols.map(p=>thSortSearch(p.id,escHtml(p.label),'font-size:12px;white-space:nowrap')).join('')}
   </tr></thead><tbody>${rows}</tbody></table></div>`;
-  container.innerHTML = hdr;
 }
 
 function renderAdvResults(docList) {
@@ -3784,7 +3818,6 @@ function updatePropColSelect(classId) {
   if (!props.length) { sel.style.display='none'; sel.innerHTML=''; return; }
   const prev = new Set(Array.from(sel.selectedOptions).map(o=>o.value));
   sel.innerHTML = props.map(p=>`<option value="${p.id}"${prev.has(p.id)?' selected':''}>${escHtml(p.display_name||p.name)}</option>`).join('');
-  console.log('SHOWING prop-col-select with',props.length,'options');
   sel.style.display = 'inline-block';
 }
 
@@ -3798,6 +3831,60 @@ function propValDisplay(d, propId) {
   const pv = (d.properties||[]).find(p=>p.property_template_id===propId);
   if (!pv || pv.value===undefined || pv.value===null || pv.value==='') return '<span style="color:var(--text-muted)">–</span>';
   return escHtml(String(pv.value));
+}
+
+function propInputHtml(p) {
+  const pid = p.property_template_id;
+  const dt = p.data_type;
+  const v = p.value !== null && p.value !== undefined ? p.value : '';
+  const attrs = `id="detail-prop-${pid}" data-propid="${pid}" data-type="${dt}" class="form-input"`;
+  if (dt === 'boolean') {
+    const t = v===true||v==='true', f = v===false||v==='false';
+    return `<select ${attrs}><option value="">—</option><option value="true"${t?' selected':''}>Yes</option><option value="false"${f?' selected':''}>No</option></select>`;
+  }
+  if (dt === 'date') return `<input type="date" ${attrs} value="${escHtml(String(v))}">`;
+  if (dt === 'datetime') {
+    const fv = v ? new Date(v).toISOString().slice(0,16) : '';
+    return `<input type="datetime-local" ${attrs} value="${escHtml(fv)}">`;
+  }
+  if (dt === 'integer') return `<input type="number" step="1" ${attrs} value="${escHtml(String(v))}">`;
+  if (dt === 'decimal') return `<input type="number" step="any" ${attrs} value="${escHtml(String(v))}">`;
+  return `<input type="text" ${attrs} value="${escHtml(String(v))}">`;
+}
+
+async function saveDetailProperties() {
+  if (!currentDoc) return;
+  const inputs = [];
+  document.querySelectorAll('[id^="detail-prop-"][data-propid]').forEach(el => {
+    const val = el.value.trim();
+    if (val !== '') inputs.push({property_template_id: el.dataset.propid, value: val});
+  });
+  const btn = document.getElementById('detail-save-props-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const r = await apiFetch('/documents/' + currentDoc.id + '/properties?replace_all=true', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(inputs),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    toast('Properties saved ✓', 'success');
+    const savedId = currentDoc.id;
+    // Refresh the detail view (also reloads currentDoc with updated properties)
+    await openDetail(savedId);
+    // If search results are showing, patch the row in-place and re-render
+    if (window._advDocs) {
+      const idx = window._advDocs.findIndex(d => d.id === savedId);
+      if (idx !== -1) {
+        window._advDocs[idx] = {...window._advDocs[idx], properties: currentDoc.properties};
+        renderSearchTable();
+      }
+    }
+  } catch(e) {
+    toast('Failed to save: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Properties'; }
+  }
 }
 function debounceSearch(){
   clearTimeout(searchTimeout);
