@@ -493,9 +493,28 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
             </div>
           </div>
 
-          <div class="adv-field-row" id="adv-prop-col-row">
-            <label>Show Columns</label>
-            <select multiple id="adv-prop-col-select" style="height:120px;flex:1;max-width:360px" onchange="if(window._advDocs)renderSearchTable()"></select>
+          <div class="adv-field-row" id="adv-prop-col-row" style="align-items:flex-start">
+            <label style="padding-top:4px">Columns</label>
+            <div style="display:flex;gap:8px;flex:1;max-width:520px">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;text-align:center">Available Columns</div>
+                <select multiple id="adv-prop-col-select" style="width:100%;height:120px"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;justify-content:center;gap:6px;padding-top:20px">
+                <button class="btn btn-sm" onclick="advColsAdd()" title="Add to Selected Columns" style="font-size:16px;padding:2px 8px">→</button>
+                <button class="btn btn-sm" onclick="advColsRemove()" title="Move to Available Columns" style="font-size:16px;padding:2px 8px">←</button>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;text-align:center">Selected Columns</div>
+                <div style="display:flex;gap:4px">
+                  <select multiple id="adv-selected-col-select" style="flex:1;height:120px"></select>
+                  <div style="display:flex;flex-direction:column;justify-content:center;gap:4px">
+                    <button class="btn btn-sm" onclick="advColsMoveUp()" title="Move up" style="font-size:14px;padding:2px 6px">↑</button>
+                    <button class="btn btn-sm" onclick="advColsMoveDown()" title="Move down" style="font-size:14px;padding:2px 6px">↓</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="adv-search-actions">
@@ -3535,10 +3554,10 @@ function initAdvSearch() {
   if (!sel) return;
   sel.innerHTML = '<option value="">All classes</option>' +
     classes.map(c => `<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
-  const colSel = document.getElementById('adv-prop-col-select');
-  if (colSel && !colSel.querySelector('[data-coltype="system"]')) {
-    colSel.innerHTML = ADV_SYS_COLS.map(c =>
-      `<option value="${c.key}" data-coltype="system" selected>${c.label}</option>`
+  const leftSel = document.getElementById('adv-prop-col-select');
+  if (leftSel && !leftSel.querySelector('[data-coltype="system"]')) {
+    leftSel.innerHTML = ADV_SYS_COLS.map(c =>
+      `<option value="${c.key}" data-coltype="system">${c.label}</option>`
     ).join('');
   }
 }
@@ -3548,10 +3567,12 @@ async function onAdvClassChange() {
   const section = document.getElementById('adv-conds-section');
   document.getElementById('adv-conds-list').innerHTML = '';
   advSearchClassProps = [];
+  const leftSel = document.getElementById('adv-prop-col-select');
+  const rightSel = document.getElementById('adv-selected-col-select');
   if (!classID) {
     section.style.display = 'none';
-    const colSel = document.getElementById('adv-prop-col-select');
-    if (colSel) Array.from(colSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    if (leftSel)  Array.from(leftSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    if (rightSel) Array.from(rightSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
     return;
   }
   try {
@@ -3564,14 +3585,14 @@ async function onAdvClassChange() {
       data_type: p.template ? p.template.data_type : (p.data_type || 'string'),
     }));
     section.style.display = '';
-    const colSel = document.getElementById('adv-prop-col-select');
-    if (colSel) {
-      Array.from(colSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    if (rightSel) Array.from(rightSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    if (leftSel) {
+      Array.from(leftSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
       advSearchClassProps.forEach(p => {
         const o = document.createElement('option');
-        o.value = p.id; o.dataset.coltype = 'prop'; o.selected = true;
+        o.value = p.id; o.dataset.coltype = 'prop';
         o.textContent = escHtml(p.display_name);
-        colSel.appendChild(o);
+        leftSel.appendChild(o);
       });
     }
   } catch(e) { toast('Failed to load class properties','error'); }
@@ -3630,11 +3651,51 @@ function onAdvOpChange(opSel) {
 }
 
 function selectedAdvPropCols() {
-  const sel = document.getElementById('adv-prop-col-select');
+  const sel = document.getElementById('adv-selected-col-select');
   if (!sel) return [];
-  return Array.from(sel.selectedOptions)
+  return Array.from(sel.options)
     .filter(o => o.dataset.coltype === 'prop')
     .map(o => ({id: o.value, label: o.text}));
+}
+
+function advColsAdd() {
+  const left = document.getElementById('adv-prop-col-select');
+  const right = document.getElementById('adv-selected-col-select');
+  if (!left || !right) return;
+  Array.from(left.selectedOptions).forEach(opt => { left.removeChild(opt); right.appendChild(opt); });
+  if (window._advDocs) renderSearchTable();
+}
+
+function advColsRemove() {
+  const left = document.getElementById('adv-prop-col-select');
+  const right = document.getElementById('adv-selected-col-select');
+  if (!left || !right) return;
+  Array.from(right.selectedOptions).forEach(opt => { right.removeChild(opt); left.appendChild(opt); });
+  if (window._advDocs) renderSearchTable();
+}
+
+function advColsMoveUp() {
+  const sel = document.getElementById('adv-selected-col-select');
+  if (!sel) return;
+  const opts = Array.from(sel.options);
+  for (let i = 1; i < opts.length; i++) {
+    if (opts[i].selected && !opts[i-1].selected) {
+      sel.insertBefore(opts[i], opts[i-1]);
+    }
+  }
+  if (window._advDocs) renderSearchTable();
+}
+
+function advColsMoveDown() {
+  const sel = document.getElementById('adv-selected-col-select');
+  if (!sel) return;
+  const opts = Array.from(sel.options);
+  for (let i = opts.length - 2; i >= 0; i--) {
+    if (opts[i].selected && !opts[i+1].selected) {
+      sel.insertBefore(opts[i+1], opts[i]);
+    }
+  }
+  if (window._advDocs) renderSearchTable();
 }
 
 async function execAdvSearch() {
@@ -3682,10 +3743,15 @@ function clearAdvSearch() {
   document.getElementById('adv-conds-section').style.display = 'none';
   document.getElementById('adv-results').style.display = 'none';
   advSearchClassProps = [];
-  const colSel = document.getElementById('adv-prop-col-select');
-  if (colSel) {
-    Array.from(colSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
-    Array.from(colSel.options).forEach(o => o.selected = true);
+  const leftSel = document.getElementById('adv-prop-col-select');
+  const rightSel = document.getElementById('adv-selected-col-select');
+  if (leftSel && rightSel) {
+    Array.from(leftSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    Array.from(rightSel.options).filter(o => o.dataset.coltype === 'prop').forEach(o => o.remove());
+    // Move any system columns back from right to left
+    Array.from(rightSel.options).filter(o => o.dataset.coltype === 'system').forEach(o => {
+      rightSel.removeChild(o); leftSel.appendChild(o);
+    });
   }
 }
 
@@ -3738,33 +3804,45 @@ function thPlain(label) { return `<th>${label}</th>`; }
 function renderSearchTable() {
   const container = document.getElementById('adv-results-container');
   if (!container) return;
-  const colSel = document.getElementById('adv-prop-col-select');
-  const vis = new Set(colSel ? Array.from(colSel.selectedOptions).filter(o=>o.dataset.coltype==='system').map(o=>o.value) : ADV_SYS_COLS.map(c=>c.key));
-  const propCols = selectedAdvPropCols();
-  const rows = searchSortedDocs().map(d => {
-    const [col,bg] = fileColor(d.name);
-    const clsCell = d.class_name ? `<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>` : `<span style="color:var(--text-muted)">—</span>`;
-    return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
-      ${vis.has('name')     ? `<td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>` : ''}
-      ${vis.has('class')    ? `<td>${clsCell}</td>` : ''}
-      ${vis.has('user')     ? `<td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>` : ''}
-      ${vis.has('tags')     ? `<td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>` : ''}
-      ${vis.has('version')  ? `<td><span class="badge badge-gray">v${d.version}</span></td>` : ''}
-      ${vis.has('size')     ? `<td>${fmtSize(d.file_size)}</td>` : ''}
-      ${vis.has('uploaded') ? `<td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>` : ''}
-      ${propCols.map(p=>`<td style="font-size:12px;white-space:nowrap;color:var(--text-secondary)">${propValDisplay(d,p.id)}</td>`).join('')}
-    </tr>`;
-  }).join('');
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr>
-    ${vis.has('name')     ? thSortSearch('name','Document','width:30%') : ''}
-    ${vis.has('class')    ? thSortSearch('class','Class')               : ''}
-    ${vis.has('user')     ? thSortSearch('user','User')                 : ''}
-    ${vis.has('tags')     ? thPlain('Tags')                             : ''}
-    ${vis.has('version')  ? thSortSearch('version','Ver')               : ''}
-    ${vis.has('size')     ? thSortSearch('size','Size')                 : ''}
-    ${vis.has('uploaded') ? thSortSearch('uploaded','Uploaded')         : ''}
-    ${propCols.map(p=>thSortSearch(p.id,escHtml(p.label),'font-size:12px;white-space:nowrap')).join('')}
-  </tr></thead><tbody>${rows}</tbody></table></div>`;
+  const colSel = document.getElementById('adv-selected-col-select');
+  const cols = colSel ? Array.from(colSel.options) : [];
+
+  const sysCell = {
+    name:     d => { const [c,bg]=fileColor(d.name); return `<td><div class="file-info"><div class="file-icon" style="background:${bg};color:${c}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>`; },
+    class:    d => `<td>${d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted)">—</span>`}</td>`,
+    user:     d => `<td><span style="font-size:12px;color:var(--text-secondary)">${escHtml(d.created_by||'—')}</span></td>`,
+    tags:     d => `<td>${d.tags&&d.tags.length?d.tags.map(t=>`<span class="tag">${escHtml(t)}</span>`).join(''):'<span style="color:var(--text-muted)">–</span>'}</td>`,
+    version:  d => `<td><span class="badge badge-gray">v${d.version}</span></td>`,
+    size:     d => `<td>${fmtSize(d.file_size)}</td>`,
+    uploaded: d => `<td title="${fmtDate(d.created_at)}">${fmtRel(d.created_at)}</td>`,
+  };
+  const sysHead = {
+    name:     () => thSortSearch('name','Document','width:30%'),
+    class:    () => thSortSearch('class','Class'),
+    user:     () => thSortSearch('user','User'),
+    tags:     () => thPlain('Tags'),
+    version:  () => thSortSearch('version','Ver'),
+    size:     () => thSortSearch('size','Size'),
+    uploaded: () => thSortSearch('uploaded','Uploaded'),
+  };
+
+  const headers = cols.map(o =>
+    o.dataset.coltype === 'system'
+      ? (sysHead[o.value] || (() => `<th>${escHtml(o.text)}</th>`))()
+      : thSortSearch(o.value, escHtml(o.text), 'font-size:12px;white-space:nowrap')
+  ).join('');
+
+  const rows = searchSortedDocs().map(d =>
+    `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">${
+      cols.map(o =>
+        o.dataset.coltype === 'system'
+          ? (sysCell[o.value] || (() => '<td></td>'))(d)
+          : `<td style="font-size:12px;white-space:nowrap;color:var(--text-secondary)">${propValDisplay(d,o.value)}</td>`
+      ).join('')
+    }</tr>`
+  ).join('');
+
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderAdvResults(docList) {
