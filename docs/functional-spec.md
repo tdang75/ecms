@@ -1,7 +1,7 @@
 # ECMS Functional Specification
 
-**Version:** 1.4  
-**Date:** 2026-05-20  
+**Version:** 1.5  
+**Date:** 2026-05-22  
 **Status:** Current
 
 ---
@@ -77,32 +77,58 @@ The left sidebar contains, in order:
 ### 4.2 Document List
 
 - Displays all active documents sorted by creation date (newest first).
-- Filter by: status, category, document class (toolbar dropdowns).
+- Filter by: status, document class (toolbar dropdowns).
 - Left sidebar **File Store** folder tree filters documents to a selected folder.
 - Document count badge shown per class.
 
-### 4.2.1 Advanced Search
+#### 4.2.1 Property Column Selector
+
+When a document class is selected in the toolbar filter, a **multi-select** appears listing the class's property templates. Selecting one or more properties adds those properties as extra columns to the document table. Deselecting all properties removes the extra columns. The backend is queried with `?with_props=true` when any property columns are active.
+
+### 4.2.2 Advanced Search
 
 A dedicated **Search** sidebar entry provides a structured search form:
 
-- **Class selector**: optionally restrict results to a specific document class.
-- **Full-text field**: searches document name and description.
-- **Condition builder**: one or more property conditions, each specifying:
+- **Keywords**: full-text search across document name, description, and tags.
+- **Status**: filter by active, archived, or all statuses.
+- **Document Class**: optionally restrict results to a specific document class.
+- **Property Conditions** (shown when a class is selected): one or more conditions each specifying:
   - Property template (filtered to the selected class)
-  - Operator (equals, contains, starts with, greater than, less than, between, etc.)
+  - Operator (equals, contains, starts with, greater than, less than, between, is empty, etc.)
   - Value(s)
-- **Logic**: conditions can be combined with AND or OR.
-- Results are returned via `POST /documents/search`.
+- **Logic**: conditions combined with AND (all must match) or OR (any must match).
+- Results returned via `POST /documents/search`.
+
+#### Search Result Columns
+
+- **Standard columns** are toggled via chip buttons (Class, User, Status, Tags, Category, Ver, Size, Uploaded, Last Modified). Each chip can be turned on/off independently; defaults are Class, User, Tags, Ver, Size, Uploaded.
+- **Property columns**: when a class is selected, a **Show Columns** multi-select appears listing the class's properties. Selected properties appear as additional columns appended after the standard columns. The backend is queried with `with_props: true` so property values are returned.
+- All columns (standard and property) are sortable by clicking the column header. Clicking again reverses sort direction.
 
 ### 4.3 Document Detail
 
 Clicking a document row opens a detail panel showing:
 - Name, description, class, category, tags
 - File size, MIME type, version number, created/updated timestamps, created by
-- Custom property values
+- Custom property values (editable if the user has update permission — see §4.3.1)
 - Version history
 - Audit log (last 20 entries)
 - ACL entries (administrators and users with update permission only)
+
+#### 4.3.1 Inline Property Editing
+
+When the logged-in user has `documents:update` permission or is the document owner, the **Class Properties** section renders each property as an editable input field appropriate to its data type:
+
+| Data type | Input element |
+|---|---|
+| `string`, `user` | Text input |
+| `integer` | Number input (step 1) |
+| `decimal` | Number input (step any) |
+| `boolean` | Select (—, Yes, No) |
+| `date` | Date picker |
+| `datetime` | Date-time picker |
+
+A **Save Properties** button in the section header submits all values via `PUT /documents/{id}/properties?replace_all=true`. After a successful save the detail panel reloads and, if the document appears in the current advanced search results, the search table updates in-place without re-running the search.
 
 ### 4.4 Row Interactions
 

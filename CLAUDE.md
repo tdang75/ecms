@@ -86,6 +86,23 @@ Single-page application. All UI logic is in `frontend/index.html` with no build 
 
 **Nav visibility**: Taxonomy and Users & Groups nav items are hidden for regular users; shown only when the logged-in user has `taxonomy:create` or `users:manage` permissions respectively.
 
+**Property column selector** (`prop-col-select` / `updatePropColSelect`):
+- Appears in the document list toolbar when a class is selected from the `filter-class` dropdown
+- Multi-select populated from `classes[].properties` (already loaded by `loadClasses`)
+- Selected properties appear as extra sortable columns in the document table; `loadAll` passes `?with_props=true` when any columns are selected
+- `loadPropertiesBatch` on the backend uses `ANY($1::uuid[])` with an explicit cast (required by pgx when passing `[]string` for a UUID column)
+
+**Advanced search** (`execAdvSearch` / `renderSearchTable`):
+- Standard column visibility controlled by `searchVisibleCols` (a `Set`) toggled via chip buttons (`#adv-col-picker`); `SEARCH_COLS` defines the available columns and their defaults
+- Property columns: `#adv-prop-col-select` multi-select appears when a class is chosen; selected properties are appended after the standard columns; `with_props: true` is sent in the POST body so the backend attaches property values
+- `searchSortedDocs` handles both built-in column keys and property template UUIDs in its `default` branch
+- After saving properties from the detail modal, `saveDetailProperties` patches `window._advDocs[idx].properties` in-place and calls `renderSearchTable()` — no extra network request
+
+**Inline property editing** (`propInputHtml` / `saveDetailProperties`):
+- In `openDetail`, `_isOwner` and `_canUpdate` are computed before `propsHtml` so the properties section can conditionally render inputs vs. read-only values
+- `propInputHtml(p)` maps each data type to the correct input element (text, number, date, datetime-local, select for boolean)
+- `saveDetailProperties` collects all `[id^="detail-prop-"]` inputs and calls `PUT /documents/{id}/properties?replace_all=true`
+
 ### Router
 
 All routes are registered in `(a *App) buildMux() http.Handler` in `main.go`. This function is called by both `main()` and the test suite's `httptest.NewServer`.
@@ -95,11 +112,12 @@ All routes are registered in `(a *App) buildMux() http.Handler` in `main.go`. Th
 ```
 POST   /auth/login
 GET    /auth/me
-GET    /documents              # filters: status, category, class_id, search, tags
+GET    /documents              # filters: status, category, class_id, search, tags, folder_id
+                               # ?with_props=true attaches property values to each document
 GET    /documents/{id}
 POST   /documents              # multipart upload
 PUT    /documents/{id}
-PUT    /documents/{id}/properties
+PUT    /documents/{id}/properties   # ?replace_all=true clears all values first
 POST   /documents/{id}/version
 GET    /documents/{id}/download
 GET    /documents/{id}/preview        # Office → PDF via Gotenberg
@@ -111,6 +129,7 @@ POST   /documents/{id}/acl/reset
 GET    /documents/{id}/annotations
 POST   /documents/{id}/annotations
 DELETE /documents/{id}/annotations/{annId}
+POST   /documents/search       # advanced search; body includes with_props bool
 GET/POST/PUT/DELETE /classes
 GET    /classes/{id}
 POST   /classes/{id}/properties
