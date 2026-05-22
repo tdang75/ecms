@@ -397,7 +397,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
           <div class="stat-card" style="--accent-color:var(--info)"><div class="stat-label">Activity</div><div class="stat-value" id="stat-activity">–</div><div class="stat-sub">Actions this week</div></div>
         </div>
         <div class="toolbar">
-          <select class="filter-select" id="filter-class" onchange="applyFilters()"><option value="">All classes</option></select>
+          <select class="filter-select" id="filter-class" onchange="updatePropColSelect(this.value);applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
           <select multiple id="prop-col-select" title="Select property columns to display" onchange="loadAll()" style="display:none"></select>
 
@@ -1175,7 +1175,6 @@ async function saveDocFolders() {
 function populateClassFilters() {
   const sel = document.getElementById('filter-class');
   sel.innerHTML = '<option value="">All classes</option>'+classes.map(c=>`<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
-  sel.addEventListener('change', () => updatePropColSelect(sel.value));
   const up = document.getElementById('doc-class');
   if (up) up.innerHTML = '<option value="">— None —</option>'+classes.map(c=>`<option value="${c.id}">${c.icon||''} ${escHtml(c.name)}</option>`).join('');
 }
