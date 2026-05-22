@@ -399,7 +399,7 @@ tr.doc-row:hover td{background:var(--bg-row,rgba(255,255,255,.02))}
         <div class="toolbar">
           <select class="filter-select" id="filter-class" onchange="applyFilters()"><option value="">All classes</option></select>
           <select class="filter-select" id="filter-status" onchange="applyFilters()"><option value="active">Active</option><option value="archived">Archived</option><option value="deleted">Deleted</option></select>
-          <select multiple id="prop-col-select" title="Select property columns to display" onchange="renderDocs()" style="display:none"></select>
+          <select multiple id="prop-col-select" title="Select property columns to display" onchange="loadAll()" style="display:none"></select>
 
           <button class="btn btn-primary" id="upload-btn-top" onclick="openUploadModal(activeFolderID)" style="display:none">+ Upload</button>
           <div class="ml-auto"></div>

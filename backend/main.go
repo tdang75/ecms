@@ -1152,29 +1152,28 @@ func (a *App) loadPropertiesBatch(ctx context.Context, docIDs []string) map[stri
 	result := map[string][]PropertyValue{}
 	if len(docIDs) == 0 { return result }
 	rows, err := a.db.Query(ctx, `
-		SELECT pv.document_id, pt.id, pt.name, pt.display_name, pt.data_type,
+		SELECT pv.document_id::text, pt.id, pt.name, pt.display_name, pt.data_type,
 		       pv.value_string, pv.value_integer, pv.value_decimal,
 		       pv.value_boolean, pv.value_date, pv.value_datetime
 		FROM document_property_values pv
 		JOIN property_templates pt ON pv.property_template_id = pt.id
-		WHERE pv.document_id = ANY($1)
+		WHERE pv.document_id = ANY($1::uuid[])
 		ORDER BY pv.document_id, pt.name`, docIDs)
 	if err != nil { return result }
 	defer rows.Close()
 	for rows.Next() {
 		var docID string
 		var pv PropertyValue
-		var vs *string; var vi *int64; var vd *float64; var vb *bool; var vdate, vdt *string
+		var vs *string; var vi *int64; var vd *float64; var vb *bool; var vdate, vdt *time.Time
 		rows.Scan(&docID, &pv.PropertyTemplateID, &pv.Name, &pv.DisplayName, &pv.DataType,
 			&vs, &vi, &vd, &vb, &vdate, &vdt)
 		switch pv.DataType {
-		case "string":   if vs != nil { pv.Value = *vs }
-		case "integer":  if vi != nil { pv.Value = *vi }
-		case "decimal":  if vd != nil { pv.Value = *vd }
-		case "boolean":  if vb != nil { pv.Value = *vb }
-		case "date":     if vdate != nil { pv.Value = *vdate }
-		case "datetime": if vdt != nil { pv.Value = *vdt }
-		case "user":     if vs != nil { pv.Value = *vs }
+		case "string", "user": pv.Value = vs
+		case "integer":        pv.Value = vi
+		case "decimal":        pv.Value = vd
+		case "boolean":        pv.Value = vb
+		case "date":           if vdate != nil { pv.Value = vdate.Format("2006-01-02") }
+		case "datetime":       pv.Value = vdt
 		}
 		result[docID] = append(result[docID], pv)
 	}
