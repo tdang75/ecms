@@ -188,7 +188,6 @@ type Document struct {
 	ClassID     *string         `json:"class_id"`
 	ClassName   *string         `json:"class_name"`
 	ClassIcon   *string         `json:"class_icon"`
-	Category    string          `json:"category"`
 	Tags        []string        `json:"tags"`
 	S3Key       string          `json:"s3_key"`
 	S3Bucket    string          `json:"s3_bucket"`
@@ -558,7 +557,7 @@ func (a *App) initDB() error {
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		name TEXT NOT NULL, description TEXT DEFAULT '',
 		class_id UUID REFERENCES document_classes(id) ON DELETE SET NULL,
-		category TEXT DEFAULT 'General', tags TEXT[] DEFAULT '{}',
+		tags TEXT[] DEFAULT '{}',
 		s3_key TEXT NOT NULL, s3_bucket TEXT NOT NULL,
 		file_size BIGINT DEFAULT 0, mime_type TEXT DEFAULT '',
 		version INTEGER DEFAULT 1,
@@ -663,6 +662,13 @@ func (a *App) initDB() error {
 	a.db.Exec(context.Background(), `
 		DO $$ BEGIN
 			ALTER TABLE document_annotations ADD COLUMN doc_version INTEGER NOT NULL DEFAULT 1;
+		EXCEPTION WHEN others THEN NULL;
+		END $$;
+	`)
+	// Drop category column from documents (idempotent migration).
+	a.db.Exec(context.Background(), `
+		DO $$ BEGIN
+			ALTER TABLE documents DROP COLUMN IF EXISTS category;
 		EXCEPTION WHEN others THEN NULL;
 		END $$;
 	`)
@@ -829,13 +835,13 @@ func (a *App) audit(docID, action, actor string, details any) {
 		docID, action, actor, b)
 }
 
-const docCols = `d.id,d.name,d.description,d.class_id,dc.name,dc.icon,d.category,d.tags,d.s3_key,d.s3_bucket,d.file_size,d.mime_type,d.version,d.status,d.created_at,d.updated_at,d.created_by,COALESCE(d.updated_by,'')`
+const docCols = `d.id,d.name,d.description,d.class_id,dc.name,dc.icon,d.tags,d.s3_key,d.s3_bucket,d.file_size,d.mime_type,d.version,d.status,d.created_at,d.updated_at,d.created_by,COALESCE(d.updated_by,'')`
 const docFrom = `FROM documents d LEFT JOIN document_classes dc ON d.class_id=dc.id`
 
 func scanDoc(row interface{ Scan(...any) error }) (Document, error) {
 	var d Document
 	err := row.Scan(&d.ID, &d.Name, &d.Description, &d.ClassID, &d.ClassName, &d.ClassIcon,
-		&d.Category, &d.Tags, &d.S3Key, &d.S3Bucket, &d.FileSize, &d.MimeType,
+		&d.Tags, &d.S3Key, &d.S3Bucket, &d.FileSize, &d.MimeType,
 		&d.Version, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.CreatedBy, &d.UpdatedBy)
 	if d.Tags == nil {
 		d.Tags = []string{}
@@ -1504,7 +1510,6 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	status := q.Get("status"); if status == "" { status = "active" }
 	query := `SELECT ` + docCols + ` ` + docFrom + ` WHERE d.status=$1`
 	args := []any{status}; i := 2
-	if cat := q.Get("category"); cat != "" { query += fmt.Sprintf(" AND d.category=$%d", i); args = append(args, cat); i++ }
 	if cls := q.Get("class_id"); cls != "" { query += fmt.Sprintf(" AND d.class_id=$%d", i); args = append(args, cls); i++ }
 	if s := q.Get("search"); s != "" {
 		query += fmt.Sprintf(" AND (d.name ILIKE $%d OR d.description ILIKE $%d OR EXISTS (SELECT 1 FROM unnest(d.tags) t WHERE t ILIKE $%d))", i, i, i)
@@ -1710,7 +1715,7 @@ func (a *App) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"id": d.ID, "name": d.Name, "description": d.Description,
 		"class_id": d.ClassID, "class_name": d.ClassName, "class_icon": d.ClassIcon,
-		"category": d.Category, "tags": d.Tags, "s3_key": d.S3Key, "s3_bucket": d.S3Bucket,
+		"tags": d.Tags, "s3_key": d.S3Key, "s3_bucket": d.S3Bucket,
 		"file_size": d.FileSize, "mime_type": d.MimeType, "version": d.Version, "status": d.Status,
 		"created_at": d.CreatedAt, "updated_at": d.UpdatedAt, "created_by": d.CreatedBy,
 		"properties": props, "versions": versions, "audit": entries,
@@ -1732,7 +1737,6 @@ func (a *App) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 	id := uuid.New().String()
 	name := r.FormValue("name"); if name == "" { name = header.Filename }
 	description := r.FormValue("description")
-	category := r.FormValue("category"); if category == "" { category = "General" }
 	classID := r.FormValue("class_id")
 	var tags []string
 	if t := r.FormValue("tags"); t != "" { json.Unmarshal([]byte(t), &tags) }
@@ -1748,8 +1752,8 @@ func (a *App) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 	if classID != "" { classIDPtr = &classID }
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO documents (id,name,description,class_id,category,tags,s3_key,s3_bucket,file_size,mime_type,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		id, name, description, classIDPtr, category, tags, s3Key, a.cfg.S3Bucket, header.Size, mimeType, actor)
+		`INSERT INTO documents (id,name,description,class_id,tags,s3_key,s3_bucket,file_size,mime_type,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		id, name, description, classIDPtr, tags, s3Key, a.cfg.S3Bucket, header.Size, mimeType, actor)
 	if err != nil { writeError(w, 500, "db: "+err.Error()); return }
 
 	d, _ := scanDoc(a.db.QueryRow(context.Background(), `SELECT `+docCols+` `+docFrom+` WHERE d.id=$1`, id))
@@ -1773,14 +1777,13 @@ func (a *App) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		Name        *string  `json:"name"`
 		Description *string  `json:"description"`
 		ClassID     *string  `json:"class_id"`
-		Category    *string  `json:"category"`
 		Tags        []string `json:"tags"`
 		Status      *string  `json:"status"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	_, uerr := a.db.Exec(context.Background(),
-		`UPDATE documents SET name=COALESCE($1,name),description=COALESCE($2,description),class_id=COALESCE($3,class_id),category=COALESCE($4,category),tags=COALESCE($5,tags),status=COALESCE($6,status),updated_at=NOW(),updated_by=$8 WHERE id=$7`,
-		body.Name, body.Description, body.ClassID, body.Category, body.Tags, body.Status, id, actor)
+		`UPDATE documents SET name=COALESCE($1,name),description=COALESCE($2,description),class_id=COALESCE($3,class_id),tags=COALESCE($4,tags),status=COALESCE($5,status),updated_at=NOW(),updated_by=$7 WHERE id=$6`,
+		body.Name, body.Description, body.ClassID, body.Tags, body.Status, id, actor)
 	if uerr != nil { writeError(w, 404, "not found"); return }
 	d, _ := scanDoc(a.db.QueryRow(context.Background(), `SELECT `+docCols+` `+docFrom+` WHERE d.id=$1`, id))
 	a.audit(id, "update", actor, body)

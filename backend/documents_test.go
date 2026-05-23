@@ -65,15 +65,12 @@ func TestUpdateDocument(t *testing.T) {
 
 	newName := "renamed-" + uid() + ".txt"
 	resp := apiDo(t, "PUT", "/documents/"+id,
-		map[string]any{"name": newName, "category": "Contracts"}, tok)
+		map[string]any{"name": newName}, tok)
 	mustStatus(t, resp, 200)
 	var body map[string]any
 	mustDecode(t, resp.Body, &body)
 	if body["name"] != newName {
 		t.Fatalf("name %v, want %v", body["name"], newName)
-	}
-	if body["category"] != "Contracts" {
-		t.Fatalf("category %v, want Contracts", body["category"])
 	}
 }
 
