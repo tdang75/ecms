@@ -382,16 +382,21 @@ func (a *App) requireAuthOrOwner(perm string, next http.HandlerFunc) http.Handle
 	}
 }
 
-// isDocOwner returns true if the user holds the "owner" ACL operation on docID.
+// isDocOwner returns true if any of the user's principals holds the "owner"
+// ACL operation on docID (checks individual user principal and all groups).
 func (a *App) isDocOwner(ctx context.Context, docID string, claims *Claims) bool {
 	if claims == nil {
 		return false
 	}
+	principals := []string{"user:" + claims.Username}
+	for _, g := range claims.Groups {
+		principals = append(principals, "group:"+g)
+	}
 	var count int
 	a.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM document_acl
-		WHERE document_id=$1 AND principal=$2 AND 'owner' = ANY(operations)`,
-		docID, "user:"+claims.Username).Scan(&count)
+		WHERE document_id=$1 AND principal=ANY($2) AND 'owner'=ANY(operations)`,
+		docID, principals).Scan(&count)
 	return count > 0
 }
 
