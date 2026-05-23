@@ -1408,12 +1408,10 @@ func (a *App) defaultACL(ctx context.Context, docID string, owner string) {
 // Evaluation order:
 //  1. Document ACL: if any of the user's principals have an entry that grants
 //     the operation (or has "owner"), allow.
-//  2. System-permission fallback: if none of the user's principals appear in
-//     the document ACL at all, fall back to the user's group-level system
-//     permissions.  This covers documents whose default ACL group entries were
-//     never written (e.g. silent INSERT failure) and legacy documents with no
-//     ACL rows.  If the user's principals DO appear in the ACL but without the
-//     required operation, that is an explicit restriction and we deny.
+//  2. System permissions: always checked as a baseline. A group-level system
+//     permission (e.g. documents:update) grants access to the corresponding
+//     document operation regardless of what the document ACL says, so that
+//     users inherit the full capabilities of their group.
 func (a *App) docAllowed(ctx context.Context, docID string, op string, claims *Claims) bool {
 	if claims == nil {
 		return false
@@ -1425,34 +1423,26 @@ func (a *App) docAllowed(ctx context.Context, docID string, op string, claims *C
 		principals = append(principals, "group:"+g)
 	}
 
-	// Check document-level ACL — "owner" operation supersedes all specific ops
+	// 1. Document-level ACL — "owner" supersedes all specific ops
 	var count int
-	err := a.db.QueryRow(ctx, `
+	a.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM document_acl
 		WHERE document_id=$1
 		  AND principal = ANY($2)
 		  AND ($3 = ANY(operations) OR 'owner' = ANY(operations))`,
 		docID, principals, op).Scan(&count)
-	if err == nil && count > 0 {
+	if count > 0 {
 		return true
 	}
 
-	// Fall back to system permission only when none of the user's principals
-	// have any ACL row for this document (no explicit restriction recorded).
-	var principalRows int
-	a.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM document_acl
-		WHERE document_id=$1 AND principal = ANY($2)`,
-		docID, principals).Scan(&principalRows)
-	if principalRows == 0 {
-		sysPerm := map[string]string{
-			ACLRead: PermDocRead, ACLCreate: PermDocCreate,
-			ACLUpdate: PermDocUpdate, ACLDelete: PermDocDelete,
-			ACLDownload: PermDocDownload,
-		}
-		if p, ok := sysPerm[op]; ok {
-			return hasPerm(claims, p)
-		}
+	// 2. System-permission baseline — always applies
+	sysPerm := map[string]string{
+		ACLRead: PermDocRead, ACLCreate: PermDocCreate,
+		ACLUpdate: PermDocUpdate, ACLDelete: PermDocDelete,
+		ACLDownload: PermDocDownload,
+	}
+	if p, ok := sysPerm[op]; ok {
+		return hasPerm(claims, p)
 	}
 	return false
 }
@@ -1481,14 +1471,15 @@ func (a *App) getACL(ctx context.Context, docID string) []ACLEntry {
 // ── Document Handlers ──────────────────────────────────────────────────────────
 
 // aclReadFilter appends a SQL AND clause (and args) restricting results to
-// documents the caller has at least read access to.
-// A document is visible when:
-//   (a) one of the user's principals has an ACL entry granting read or owner, OR
-//   (b) none of the user's principals has any ACL entry (fall back to sys perms)
-//       — but only when the user holds the documents:read system permission.
+// documents the caller has at least read access to, mirroring docAllowed:
+//   (a) ACL entry for one of the user's principals grants read or owner, OR
+//   (b) user holds the documents:read system permission (always-on baseline).
 func aclReadFilter(claims *Claims, args *[]any, idx *int) string {
 	if claims == nil {
 		return " AND FALSE"
+	}
+	if hasPerm(claims, PermDocRead) {
+		return "" // system permission grants read on all documents
 	}
 	principals := []string{"user:" + claims.Username}
 	for _, g := range claims.Groups {
@@ -1497,12 +1488,7 @@ func aclReadFilter(claims *Claims, args *[]any, idx *int) string {
 	p := *idx
 	*args = append(*args, principals)
 	*idx++
-	aclGrant := fmt.Sprintf(`EXISTS (SELECT 1 FROM document_acl acl WHERE acl.document_id=d.id AND acl.principal=ANY($%d) AND ('read'=ANY(acl.operations) OR 'owner'=ANY(acl.operations)))`, p)
-	noEntry  := fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM document_acl acl WHERE acl.document_id=d.id AND acl.principal=ANY($%d))`, p)
-	if hasPerm(claims, PermDocRead) {
-		return " AND (" + aclGrant + " OR " + noEntry + ")"
-	}
-	return " AND " + aclGrant
+	return fmt.Sprintf(` AND EXISTS (SELECT 1 FROM document_acl acl WHERE acl.document_id=d.id AND acl.principal=ANY($%d) AND ('read'=ANY(acl.operations) OR 'owner'=ANY(acl.operations)))`, p)
 }
 
 func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
