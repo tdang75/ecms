@@ -360,9 +360,11 @@ func (a *App) requireAuth(perm string, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// requireAuthOrOwner is like requireAuth but also passes the system-permission
-// check if the user holds the "owner" ACL operation on the target document
-// (identified by the {id} path value).
+// requireAuthOrOwner passes if the user holds the system permission OR if
+// docAllowed grants the equivalent document-level ACL operation. The ACL op
+// is derived by stripping the "documents:" prefix from perm (e.g.
+// "documents:update" → "update"), so document-level update/owner grants
+// are honoured without requiring the system-level permission.
 func (a *App) requireAuthOrOwner(perm string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims := a.claimsFromRequest(r)
@@ -372,7 +374,8 @@ func (a *App) requireAuthOrOwner(perm string, next http.HandlerFunc) http.Handle
 		}
 		if perm != "" && !hasPerm(claims, perm) {
 			docID := r.PathValue("id")
-			if docID == "" || !a.isDocOwner(r.Context(), docID, claims) {
+			aclOp := strings.TrimPrefix(perm, "documents:")
+			if docID == "" || !a.docAllowed(r.Context(), docID, aclOp, claims) {
 				writeError(w, 403, fmt.Sprintf("permission denied: %s required", perm))
 				return
 			}
@@ -380,24 +383,6 @@ func (a *App) requireAuthOrOwner(perm string, next http.HandlerFunc) http.Handle
 		ctx := context.WithValue(r.Context(), claimsKey, claims)
 		next(w, r.WithContext(ctx))
 	}
-}
-
-// isDocOwner returns true if any of the user's principals holds the "owner"
-// ACL operation on docID (checks individual user principal and all groups).
-func (a *App) isDocOwner(ctx context.Context, docID string, claims *Claims) bool {
-	if claims == nil {
-		return false
-	}
-	principals := []string{"user:" + claims.Username}
-	for _, g := range claims.Groups {
-		principals = append(principals, "group:"+g)
-	}
-	var count int
-	a.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM document_acl
-		WHERE document_id=$1 AND principal=ANY($2) AND 'owner'=ANY(operations)`,
-		docID, principals).Scan(&count)
-	return count > 0
 }
 
 func claimsFrom(r *http.Request) *Claims {
