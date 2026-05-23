@@ -200,8 +200,9 @@ type Document struct {
 	UpdatedAt   time.Time       `json:"updated_at"`
 	CreatedBy   string          `json:"created_by"`
 	UpdatedBy   string          `json:"updated_by"`
-	Properties  []PropertyValue `json:"properties,omitempty"`
-	UserIsOwner bool            `json:"user_is_owner,omitempty"`
+	Properties   []PropertyValue `json:"properties,omitempty"`
+	UserIsOwner  bool            `json:"user_is_owner,omitempty"`
+	UserCanDelete bool           `json:"user_can_delete,omitempty"`
 }
 
 type ACLEntry struct {
@@ -1208,6 +1209,22 @@ func (a *App) loadOwnershipBatch(ctx context.Context, docIDs []string, claims *C
 	return result
 }
 
+// loadCanDeleteBatch returns the set of document IDs where the caller has delete or owner ACL operation.
+func (a *App) loadCanDeleteBatch(ctx context.Context, docIDs []string, claims *Claims) map[string]bool {
+	result := map[string]bool{}
+	if len(docIDs) == 0 || claims == nil { return result }
+	principals := []string{"user:" + claims.Username}
+	for _, g := range claims.Groups { principals = append(principals, "group:"+g) }
+	rows, err := a.db.Query(ctx,
+		`SELECT DISTINCT document_id::text FROM document_acl
+		 WHERE document_id=ANY($1::uuid[]) AND principal=ANY($2) AND ('delete'=ANY(operations) OR 'owner'=ANY(operations))`,
+		docIDs, principals)
+	if err != nil { return result }
+	defer rows.Close()
+	for rows.Next() { var id string; rows.Scan(&id); result[id] = true }
+	return result
+}
+
 func (a *App) handleGetClass(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var c DocumentClass
@@ -1512,7 +1529,11 @@ func (a *App) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 		for i := range docs { docs[i].Properties = pm[docs[i].ID] }
 	}
 	om := a.loadOwnershipBatch(context.Background(), ids, claims)
-	for i := range docs { docs[i].UserIsOwner = om[docs[i].ID] }
+	dm := a.loadCanDeleteBatch(context.Background(), ids, claims)
+	for i := range docs {
+		docs[i].UserIsOwner = om[docs[i].ID]
+		docs[i].UserCanDelete = dm[docs[i].ID]
+	}
 	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
 }
 
@@ -1658,7 +1679,11 @@ func (a *App) handleAdvancedSearch(w http.ResponseWriter, r *http.Request) {
 		for i := range docs { docs[i].Properties = pm[docs[i].ID] }
 	}
 	om := a.loadOwnershipBatch(context.Background(), ids, claims)
-	for i := range docs { docs[i].UserIsOwner = om[docs[i].ID] }
+	dm := a.loadCanDeleteBatch(context.Background(), ids, claims)
+	for i := range docs {
+		docs[i].UserIsOwner = om[docs[i].ID]
+		docs[i].UserCanDelete = dm[docs[i].ID]
+	}
 	writeJSON(w, 200, map[string]any{"documents": docs, "total": len(docs)})
 }
 

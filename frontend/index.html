@@ -1276,7 +1276,7 @@ function renderDocs() {
   const rows = sortedDocs().map(d=>{
     const [col,bg]=fileColor(d.name);
     const cls = d.class_name?`<span class="class-badge">${d.class_icon||''} ${escHtml(d.class_name)}</span>`:`<span style="color:var(--text-muted);font-size:12px">—</span>`;
-    const canDel = hasPerm('documents:delete') || d.user_is_owner || (currentUser && d.created_by === currentUser.username);
+    const canDel = hasPerm('documents:delete') || d.user_is_owner || d.user_can_delete || (currentUser && d.created_by === currentUser.username);
     return `<tr class="doc-row" onclick="rowClick('${d.id}','${escHtml(d.name).replace(/'/g,'&#39;')}','${escHtml(d.mime_type||'')}',${d.version||1})" ondblclick="rowDblClick('${d.id}')" oncontextmenu="showDocCtxMenu(event,'${d.id}')">
       <td><div class="file-info"><div class="file-icon" style="background:${bg};color:${col}">${fileLabel(d.name)}</div><div><div class="file-name">${escHtml(d.name)}</div><div class="file-desc">${escHtml(d.description||'')}</div></div></div></td>
       <td>${cls}</td>
@@ -1324,7 +1324,7 @@ function showDocCtxMenu(e, id) {
   const canDl  = hasPerm('documents:download');
   const doc    = [...docs, ...(window._advDocs||[])].find(d => d.id === id);
   const isOwner = doc && (doc.user_is_owner || (currentUser && doc.created_by === currentUser.username));
-  const canDel = hasPerm('documents:delete') || isOwner;
+  const canDel = hasPerm('documents:delete') || isOwner || (doc && doc.user_can_delete);
   const canHardDel = hasPerm('documents:delete');
   const isDeleted  = doc && doc.status === 'deleted';
   document.getElementById('ctx-view').style.display        = canDl                    ? '' : 'none';
@@ -1514,7 +1514,7 @@ async function openDetail(id) {
   // Build footer buttons based on permissions
   const foot=document.getElementById('detail-foot');
   foot.innerHTML='';
-  const _canDelete = hasPerm('documents:delete') || _isOwner;
+  const _canDelete = hasPerm('documents:delete') || _isOwner || d.user_can_delete;
   const _closeBtn=document.createElement('button');_closeBtn.className='btn';_closeBtn.textContent='Close';_closeBtn.onclick=()=>closeModal('detail-modal');foot.appendChild(_closeBtn);
   if(hasPerm('documents:delete')&&d.status==='deleted'){const b=document.createElement('button');b.className='btn';b.style.color='var(--success)';b.textContent='↩ Undelete';b.onclick=undeleteDocument;foot.appendChild(b);}
   if(_canDelete&&d.status!=='deleted'){const b=document.createElement('button');b.className='btn btn-danger';b.textContent='Delete';b.onclick=deleteDocument;foot.appendChild(b);}
