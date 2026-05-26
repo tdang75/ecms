@@ -1488,9 +1488,7 @@ async function openDetail(id) {
     <div class="detail-grid">
       <div class="detail-field"><label>Document Class</label><span>${d.class_name?`${d.class_icon||''} ${escHtml(d.class_name)}`:'<span style="color:var(--text-muted)">Unclassified</span>'}</span></div>
       <div class="detail-field"><label>Status</label><span class="badge ${d.status==='active'?'badge-green':'badge-red'}">${d.status}</span></div>
-      <div class="detail-field"><label>S3 Key</label><span style="font-family:var(--mono);font-size:11px;color:var(--text-muted);word-break:break-all">${d.s3_key}</span></div>
       <div class="detail-field"><label>Size / Version</label><span>${fmtSize(d.file_size)} · v${d.version}</span></div>
-      <div class="detail-field"><label>MIME Type</label><span style="font-family:var(--mono);font-size:12px">${d.mime_type||'—'}</span></div>
       <div class="detail-field"><label>Uploaded</label><span>${fmtDate(d.created_at)} by ${escHtml(d.created_by)}</span></div>
       ${d.updated_by?`<div class="detail-field"><label>Last Modified</label><span>${fmtDate(d.updated_at)} by ${escHtml(d.updated_by)}</span></div>`:''}
     </div>
